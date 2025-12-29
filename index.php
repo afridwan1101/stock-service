@@ -555,8 +555,6 @@ function handleLogout() {
   // hapus semua yang berhubungan dengan client memori storage
   localStorage.clear();
   sessionStorage.clear();
-  // alert("You have been logged out and local storage cleared.");
-  // Redirect ke PHP logout endpoint
   window.location.href = '?action=logout';
 }
 </script>
