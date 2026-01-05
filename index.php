@@ -420,7 +420,7 @@ $items = $service->getItems();
               <div class="row g-2 mb-3">
                 <div class="col-6">
                   <label>Qty</label>
-                  <input type="number" name="qty" class="form-control" value="1" required>
+                  <input type="number" min="0" name="qty" class="form-control" value="1" required>
                 </div>
                 <div class="col-6">
                   <label>Notes</label>
@@ -504,7 +504,7 @@ $items = $service->getItems();
           <div class="row g-2 mb-3">
             <div class="col-6">
               <label>Return Qty</label>
-              <input type="number" step="0.01" name="qty" id="ret_qty" class="form-control" required>
+              <input type="number" min="0" name="qty" id="ret_qty" class="form-control" required>
               <div class="form-text">Max: <span id="ret_max"></span></div>
             </div>
             <div class="col-6">
