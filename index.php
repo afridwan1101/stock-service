@@ -107,34 +107,49 @@ try {
 class DistributionService {
     public function __construct(private PDO $pdo) {}
 
-    public function distributeItem(array $data): void {
+    // NEW: Handle multiple items in one distribution
+    public function distributeItems(array $data): void {
+        if (empty($data['items']) || !is_array($data['items'])) {
+            throw new InvalidArgumentException("No items provided.");
+        }
+
         $this->pdo->beginTransaction();
         try {
-            $stmt = $this->pdo->prepare("
+            // Insert header once
+            $stmtHeader = $this->pdo->prepare("
                 INSERT INTO USAGE_ITEM (COMPANY_ID, EMPLOYEE_ID, TGL_TRX, DISPLAY_NAME, KET) 
-                VALUES ('PT-DEF', :emp, NOW(), :name, :notes)
+                VALUES ('PT-DEF', :emp, NOW(), 'System User', :notes)
             ");
-            $stmt->execute([
-                ':emp' => $data['employee_id'],
-                ':name' => 'System User', 
-                ':notes' => $data['notes']
+            $stmtHeader->execute([
+                ':emp'   => $data['employee_id'],
+                ':notes' => $data['notes'] ?? '',
             ]);
             $usageId = $this->pdo->lastInsertId();
 
-            $item = $this->getItemInfo($data['item_id']);
-
+            // Insert each line item
             $stmtDtl = $this->pdo->prepare("
                 INSERT INTO USAGE_ITEM_DTL (USAGE_ID, ITEM_ID, ITEM_NO, ITEM_DESC, QTY, UOM) 
                 VALUES (:uid, :iid, :ino, :idesc, :qty, :uom)
             ");
-            $stmtDtl->execute([
-                ':uid' => $usageId,
-                ':iid' => $item['ITEM_ID'],
-                ':ino' => $item['ITEM_NO'],
-                ':idesc' => $item['ITEM_DESC'],
-                ':qty' => $data['qty'],
-                ':uom' => $item['UOM']
-            ]);
+
+            foreach ($data['items'] as $itemInput) {
+                if (empty($itemInput['item_id']) || empty($itemInput['qty'])) continue;
+
+                $item = $this->getItemInfo($itemInput['item_id']);
+                if (!$item) {
+                    throw new RuntimeException("Item ID {$itemInput['item_id']} not found.");
+                }
+
+                $stmtDtl->execute([
+                    ':uid'    => $usageId,
+                    ':iid'    => $item['ITEM_ID'],
+                    ':ino'    => $item['ITEM_NO'],
+                    ':idesc'  => $item['ITEM_DESC'],
+                    ':qty'    => (float) $itemInput['qty'],
+                    ':uom'    => $item['UOM']
+                ]);
+            }
+
             $this->pdo->commit();
         } catch (Exception $e) {
             $this->pdo->rollBack();
@@ -155,6 +170,10 @@ class DistributionService {
             $stmtItem = $this->pdo->prepare("SELECT * FROM ITEM_MASTER WHERE ITEM_NO = ?");
             $stmtItem->execute([$data['item_no']]);
             $item = $stmtItem->fetch();
+
+            if (!$item) {
+                throw new RuntimeException("Item not found.");
+            }
 
             $stmtDtl = $this->pdo->prepare("
                 INSERT INTO RETURN_ITEM_DTL (RETURN_ID, ITEM_ID, ITEM_NO, ITEM_DESC, QTY, UOM) 
@@ -211,9 +230,22 @@ $msgType = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
-        if (isset($_POST['act_distribute'])) {
-            $service->distributeItem($_POST);
-            $msg = "Item Distributed Successfully";
+        if (isset($_POST['act_distribute_multi'])) {
+            $items = [];
+            foreach ($_POST['items'] ?? [] as $item) {
+                if (!empty($item['item_id']) && !empty($item['qty']) && (float)$item['qty'] > 0) {
+                    $items[] = $item;
+                }
+            }
+            if (empty($items)) {
+                throw new Exception("No valid items to distribute.");
+            }
+            $service->distributeItems([
+                'employee_id' => $_POST['employee_id'],
+                'notes'       => $_POST['notes'] ?? '',
+                'items'       => $items
+            ]);
+            $msg = "Items Distributed Successfully";
             $msgType = 'success';
         } elseif (isset($_POST['act_return'])) {
             $service->returnItem($_POST);
@@ -306,7 +338,7 @@ $items = $service->getItems();
 </head>
 <body class="hold-transition sidebar-mini layout-navbar-fixed layout-fixed sidebar-collapse">
 <div class="wrapper">
-  <!-- Navbar -->
+   <!-- Navbar -->
   <nav class="main-header navbar navbar-expand navbar-white navbar-light">
     <ul class="navbar-nav">
       <li class="nav-item">
@@ -351,7 +383,7 @@ $items = $service->getItems();
   <!-- Main Sidebar Container -->
   <aside class="main-sidebar sidebar-dark-primary elevation-4">
     <a href="#" class="brand-link">
-      <img src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEino1q43LiUDhvzaUKJx82I0jXa30TpJqhGexeJnoji_0zf3Pjog4aW099h1HkfXjso-LnNqizIlBYKaBeChFVH67LsLUcQ-cG_S92GC63DydTpSJ51gnakLJaYdi43EPARUrw_J2HtK5BA7y0ETAgVUJoINVjkxAhGJNmfRVvfFMYJkLzNp5J8uqrDhWs/s325/logoapp-red.png" 
+      <img src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEino1q43LiUDhvzaUKJx82I0jXa30TpJqhGexeJnoji_0zf3Pjog4aW099h1HkfXjso-LnNqizIlBYKaBeChFVH67LsLUcQ-cG_S92GC63DydTpSJ51gnakLJaYdi43EPARUrw_J2HtK5BA7y0ETAgVUJoINVjkxAhGJNmfRVvfFMYJkLzNp5J8uqrDhWs/s325/logoapp-red.png"
           alt="AdminLTE Logo" 
           class="brand-image img-circle elevation-3" 
           style="opacity: .8">
@@ -394,7 +426,7 @@ $items = $service->getItems();
           </div>
           <div class="card-body">
             <form method="POST">
-              <input type="hidden" name="act_distribute" value="1">
+              <input type="hidden" name="act_distribute_multi" value="1">
               <div class="mb-3">
                 <label class="form-label">Employee</label>
                 <select name="employee_id" class="form-select" required>
@@ -406,28 +438,39 @@ $items = $service->getItems();
                   <?php endforeach; ?>
                 </select>
               </div>
+
               <div class="mb-3">
-                <label class="form-label">Item to Issue</label>
-                <select name="item_id" class="form-select" required>
-                  <option value="">Select Item...</option>
-                  <?php foreach($items as $i): ?>
-                    <option value="<?= h($i['ITEM_ID']) ?>">
-                      <?= h($i['ITEM_DESC']) ?> (<?= h($i['ITEM_NO']) ?>)
-                    </option>
-                  <?php endforeach; ?>
-                </select>
+                <label class="form-label">Distribution Notes</label>
+                <input type="text" name="notes" class="form-control" placeholder="Reason for assignment">
               </div>
-              <div class="row g-2 mb-3">
-                <div class="col-6">
-                  <label>Qty</label>
-                  <input type="number" min="0" name="qty" class="form-control" value="1" required>
-                </div>
-                <div class="col-6">
-                  <label>Notes</label>
-                  <input type="text" name="notes" class="form-control" placeholder="Reason">
-                </div>
+
+              <div id="items-container">
+                <?php for ($i = 0; $i < 3; $i++): ?>
+                  <div class="row g-2 mb-2 item-row">
+                    <div class="col-7">
+                      <select name="items[<?= $i ?>][item_id]" class="form-select">
+                        <option value="">Select Item...</option>
+                        <?php foreach($items as $itm): ?>
+                          <option value="<?= h($itm['ITEM_ID']) ?>">
+                            <?= h($itm['ITEM_DESC']) ?> (<?= h($itm['ITEM_NO']) ?>)
+                          </option>
+                        <?php endforeach; ?>
+                      </select>
+                    </div>
+                    <div class="col-4">
+                      <input type="number" min="1" name="items[<?= $i ?>][qty]" class="form-control" placeholder="Qty">
+                    </div>
+                    <div class="col-1 d-flex align-items-center">
+                      <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">✕</button>
+                    </div>
+                  </div>
+                <?php endfor; ?>
               </div>
-              <button class="btn btn-success w-100">Assign to Employee</button>
+
+              <div class="d-grid gap-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addRow()">+ Add Another Item</button>
+                <button class="btn btn-success">Assign Selected Items</button>
+              </div>
             </form>
           </div>
         </div>
@@ -528,7 +571,6 @@ $items = $service->getItems();
       <b>Version</b> 1.0.0
     </div>
   </footer>
-
 </div>
 
 <!-- Scripts -->
@@ -536,8 +578,42 @@ $items = $service->getItems();
 <script src="plugins/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="dist/js/adminlte.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-
 <script>
+let rowIndex = 3;
+
+function addRow() {
+  const container = document.getElementById('items-container');
+  const newRow = document.createElement('div');
+  newRow.className = 'row g-2 mb-2 item-row';
+  newRow.innerHTML = `
+    <div class="col-7">
+      <select name="items[${rowIndex}][item_id]" class="form-select">
+        <option value="">Select Item...</option>
+        <?php foreach($items as $itm): ?>
+          <option value="<?= h($itm['ITEM_ID']) ?>"><?= h($itm['ITEM_DESC']) ?> (<?= h($itm['ITEM_NO']) ?>)</option>
+        <?php endforeach; ?>
+      </select>
+    </div>
+    <div class="col-4">
+      <input type="number" min="0.01" step="0.01" name="items[${rowIndex}][qty]" class="form-control" placeholder="Qty">
+    </div>
+    <div class="col-1 d-flex align-items-center">
+      <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">✕</button>
+    </div>
+  `;
+  container.appendChild(newRow);
+  rowIndex++;
+}
+
+function removeRow(button) {
+  const rows = document.querySelectorAll('.item-row');
+  if (rows.length > 1) {
+    button.closest('.item-row').remove();
+  } else {
+    alert("At least one item row is required.");
+  }
+}
+
 function setupReturn(empId, itemNo, itemName, maxQty) {
     document.getElementById('ret_emp_id').value = empId;
     document.getElementById('ret_item_no').value = itemNo;
@@ -547,12 +623,10 @@ function setupReturn(empId, itemNo, itemName, maxQty) {
     document.getElementById('ret_max').textContent = maxQty;
 }
 
-// Display current day
 const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 document.getElementById('currentDay').textContent = days[new Date().getDay()];
 
 function handleLogout() {
-  // hapus semua yang berhubungan dengan client memori storage
   localStorage.clear();
   sessionStorage.clear();
   window.location.href = '?action=logout';
