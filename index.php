@@ -70,6 +70,8 @@ if (isset($_GET['token']) && empty($_SESSION['token_consumed'])) {
         if (!empty($data['username'])) {
             $_SESSION['user_id'] = $data['username'];
             $_SESSION['role']    = $data['role'] ?? 'user';
+            // Optionally store fname if available
+            $_SESSION['fname'] = $data['fname'] ?? $data['username'];
             header("Location: $BASE_URL");
             exit;
         }
@@ -107,7 +109,6 @@ try {
 class DistributionService {
     public function __construct(private PDO $pdo) {}
 
-    // NEW: Handle multiple items in one distribution
     public function distributeItems(array $data): void {
         if (empty($data['items']) || !is_array($data['items'])) {
             throw new InvalidArgumentException("No items provided.");
@@ -115,7 +116,6 @@ class DistributionService {
 
         $this->pdo->beginTransaction();
         try {
-            // Insert header once
             $stmtHeader = $this->pdo->prepare("
                 INSERT INTO USAGE_ITEM (COMPANY_ID, EMPLOYEE_ID, TGL_TRX, DISPLAY_NAME, KET) 
                 VALUES ('PT-DEF', :emp, NOW(), 'System User', :notes)
@@ -126,7 +126,6 @@ class DistributionService {
             ]);
             $usageId = $this->pdo->lastInsertId();
 
-            // Insert each line item
             $stmtDtl = $this->pdo->prepare("
                 INSERT INTO USAGE_ITEM_DTL (USAGE_ID, ITEM_ID, ITEM_NO, ITEM_DESC, QTY, UOM) 
                 VALUES (:uid, :iid, :ino, :idesc, :qty, :uom)
@@ -158,36 +157,79 @@ class DistributionService {
     }
 
     public function returnItem(array $data): void {
+
+        $employeeId = $data['employee_id'];
+        $itemNo     = $data['item_no'];
+        $qty        = (int)$data['qty'];
+        $notes      = $data['notes'] ?? '';
+
+        if ($qty <= 0) {
+            throw new RuntimeException("Return quantity must be greater than zero.");
+        }
+
+        // Check current possession
+        $stmtCheck = $this->pdo->prepare("
+            SELECT CURRENT_POSSESSION
+            FROM v_employee_asset_possession
+            WHERE EMPLOYEE_ID = ? AND ITEM_NO = ?
+        ");
+        $stmtCheck->execute([$employeeId, $itemNo]);
+        $current = (int)$stmtCheck->fetchColumn();
+
+        if ($current <= 0) {
+            throw new RuntimeException("Employee does not hold this item.");
+        }
+
+        if ($qty > $current) {
+            throw new RuntimeException("Return quantity exceeds held quantity.");
+        }
+
         $this->pdo->beginTransaction();
         try {
+
+            // Header
             $stmt = $this->pdo->prepare("
-                INSERT INTO RETURN_ITEM (COMPANY_ID, EMPLOYEE_ID, TGL_RETURN, DISPLAY_NAME, TYPE_RETURN, KET) 
+                INSERT INTO RETURN_ITEM
+                (COMPANY_ID, EMPLOYEE_ID, TGL_RETURN, DISPLAY_NAME, TYPE_RETURN, KET)
                 VALUES ('PT-DEF', :emp, NOW(), 'System User', 'RETRIEVAL', :notes)
             ");
-            $stmt->execute([':emp' => $data['employee_id'], ':notes' => $data['notes']]);
-            $retId = $this->pdo->lastInsertId();
+            $stmt->execute([
+                ':emp'   => $employeeId,
+                ':notes' => $notes
+            ]);
 
-            $stmtItem = $this->pdo->prepare("SELECT * FROM ITEM_MASTER WHERE ITEM_NO = ?");
-            $stmtItem->execute([$data['item_no']]);
+            $returnId = $this->pdo->lastInsertId();
+
+            // Item master
+            $stmtItem = $this->pdo->prepare("
+                SELECT ITEM_ID, ITEM_NO, ITEM_DESC, UOM
+                FROM ITEM_MASTER
+                WHERE ITEM_NO = ?
+            ");
+            $stmtItem->execute([$itemNo]);
             $item = $stmtItem->fetch();
 
             if (!$item) {
                 throw new RuntimeException("Item not found.");
             }
 
+            // Detail
             $stmtDtl = $this->pdo->prepare("
-                INSERT INTO RETURN_ITEM_DTL (RETURN_ID, ITEM_ID, ITEM_NO, ITEM_DESC, QTY, UOM) 
+                INSERT INTO RETURN_ITEM_DTL
+                (RETURN_ID, ITEM_ID, ITEM_NO, ITEM_DESC, QTY, UOM)
                 VALUES (:rid, :iid, :ino, :idesc, :qty, :uom)
             ");
             $stmtDtl->execute([
-                ':rid' => $retId,
-                ':iid' => $item['ITEM_ID'],
-                ':ino' => $item['ITEM_NO'],
+                ':rid'   => $returnId,
+                ':iid'   => $item['ITEM_ID'],
+                ':ino'   => $item['ITEM_NO'],
                 ':idesc' => $item['ITEM_DESC'],
-                ':qty' => $data['qty'],
-                ':uom' => $item['UOM']
+                ':qty'   => $qty,
+                ':uom'   => $item['UOM']
             ]);
+
             $this->pdo->commit();
+
         } catch (Exception $e) {
             $this->pdo->rollBack();
             throw $e;
@@ -198,16 +240,6 @@ class DistributionService {
         $stmt = $this->pdo->prepare("SELECT * FROM ITEM_MASTER WHERE ITEM_ID = ?");
         $stmt->execute([$id]);
         return $stmt->fetch();
-    }
-
-    public function getEmployeePossessions(): array {
-        return $this->pdo->query("
-            SELECT v.*, p.FIRST_NAME 
-            FROM v_employee_asset_possession v
-            JOIN EMPLOYEE_TBL e ON v.EMPLOYEE_ID = e.EMPLOYEE_ID
-            JOIN PERSON_TBL p ON e.PERSON_ID = p.PERSON_ID
-            ORDER BY p.FIRST_NAME ASC
-        ")->fetchAll();
     }
 
     public function getEmployees(): array {
@@ -225,9 +257,40 @@ class DistributionService {
 }
 
 $service = new DistributionService($pdo);
-$msg = ''; 
-$msgType = '';
 
+// ---------------- EMPLOYEE SEARCH API ----------------
+if (isset($_GET['api']) && $_GET['api'] === 'search-employees') {
+    header('Content-Type: application/json');
+    $term = trim($_GET['q'] ?? '');
+    $results = [];
+
+    if (strlen($term) >= 2) {
+        $stmt = $pdo->prepare("
+            SELECT e.EMPLOYEE_ID, p.FIRST_NAME, p.LAST_NAME 
+            FROM EMPLOYEE_TBL e 
+            JOIN PERSON_TBL p ON e.PERSON_ID = p.PERSON_ID 
+            WHERE p.FIRST_NAME LIKE ? OR p.LAST_NAME LIKE ? OR e.EMPLOYEE_ID LIKE ?
+            ORDER BY p.FIRST_NAME
+            LIMIT 10
+        ");
+        $like = "%$term%";
+        $stmt->execute([$like, $like, $like]);
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    echo json_encode($results);
+    exit;
+}
+
+// Handle flash message from redirect
+$msg = '';
+$msgType = '';
+if (isset($_GET['msg'])) {
+    $msg = h($_GET['msg']);
+    $msgType = h($_GET['msgType'] ?? 'info');
+}
+
+// Handle POST (only process if not a redirect result)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         if (isset($_POST['act_distribute_multi'])) {
@@ -240,17 +303,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (empty($items)) {
                 throw new Exception("No valid items to distribute.");
             }
+            if (empty($_POST['employee_id'])) {
+                throw new Exception("Please select an employee.");
+            }
             $service->distributeItems([
                 'employee_id' => $_POST['employee_id'],
                 'notes'       => $_POST['notes'] ?? '',
                 'items'       => $items
             ]);
-            $msg = "Items Distributed Successfully";
-            $msgType = 'success';
+            header("Location: $BASE_URL?msg=" . urlencode("Items Distributed Successfully") . "&msgType=success");
+            exit;
         } elseif (isset($_POST['act_return'])) {
             $service->returnItem($_POST);
-            $msg = "Item Retrieved (Returned) Successfully";
-            $msgType = 'success';
+            header("Location: $BASE_URL?msg=" . urlencode("Item Retrieved (Returned) Successfully") . "&msgType=success");
+            exit;
         }
     } catch (Exception $e) {
         $msg = "Error: " . h($e->getMessage());
@@ -258,7 +324,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$possessions = $service->getEmployeePossessions();
+// =============== PAGINATION LOGIC ===============
+$limit = 10;
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$page = max(1, $page);
+$offset = ($page - 1) * $limit;
+
+$totalPossessions = $pdo->query("SELECT COUNT(*) FROM v_employee_asset_possession")->fetchColumn();
+$totalPossessions = (int)$totalPossessions;
+$totalPages = ceil($totalPossessions / $limit);
+
+$stmt = $pdo->prepare("
+    SELECT v.*, p.FIRST_NAME 
+    FROM v_employee_asset_possession v
+    JOIN EMPLOYEE_TBL e ON v.EMPLOYEE_ID = e.EMPLOYEE_ID
+    JOIN PERSON_TBL p ON e.PERSON_ID = p.PERSON_ID
+    ORDER BY p.FIRST_NAME ASC
+    LIMIT :limit OFFSET :offset
+");
+$stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+$stmt->execute();
+$possessions = $stmt->fetchAll();
+
 $employees = $service->getEmployees();
 $items = $service->getItems();
 ?>
@@ -295,39 +383,50 @@ $items = $service->getItems();
     }
     .pagination { margin-bottom: 0; }
     .context-header { background-color: #e9ecef; border-left: 4px solid #0d6efd; }
+
+    /* Employee Search Dropdown */
+    #employee_results {
+        position: absolute;
+        z-index: 1000;
+        max-height: 200px;
+        overflow-y: auto;
+        width: 100%;
+        background: white;
+        border: 1px solid #ced4da;
+        border-top: none;
+        border-radius: 0 0 0.375rem 0.375rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        display: none;
+    }
+    #employee_results .list-group-item {
+        cursor: pointer;
+        padding: 0.5rem 0.75rem;
+    }
+    #employee_results .list-group-item:hover {
+        background-color: #e9ecef;
+    }
   </style>
 
   <style>
-    /* Override entire sidebar background */
     .main-sidebar {
       background-color: #083652 !important;
     }
-
-    /* Force brand link to match sidebar color */
     .main-sidebar .brand-link {
       background-color: #083652 !important;
       color: #fff !important;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
-
-    /* Ensure sidebar content area uses same color */
     .main-sidebar .sidebar {
       background-color: #083652 !important;
     }
-
-    /* Sidebar links */
     .main-sidebar .nav-sidebar > .nav-item > .nav-link,
     .main-sidebar .nav-header {
       color: rgba(255, 255, 255, 0.85);
     }
-
-    /* Hover effect */
     .main-sidebar .nav-sidebar > .nav-item > .nav-link:hover {
       background-color: rgba(255, 255, 255, 0.1);
       color: #fff;
     }
-
-    /* Active link */
     .main-sidebar .nav-sidebar > .nav-item > .nav-link.active,
     .main-sidebar .nav-sidebar > .nav-item > .nav-link.active:hover {
       background-color: rgba(255, 255, 255, 0.2);
@@ -338,7 +437,7 @@ $items = $service->getItems();
 </head>
 <body class="hold-transition sidebar-mini layout-navbar-fixed layout-fixed sidebar-collapse">
 <div class="wrapper">
-   <!-- Navbar -->
+  <!-- Navbar -->
   <nav class="main-header navbar navbar-expand navbar-white navbar-light">
     <ul class="navbar-nav">
       <li class="nav-item">
@@ -356,8 +455,6 @@ $items = $service->getItems();
           <i class="fas fa-user" style="color: #0d6efd; margin-right: 8px;"></i>
           <span style="color: #000000;"><?= h(getGreeting()) ?>, <?= h($_SESSION['fname'] ?? 'Guest') ?></span>
         </a>
-
-        <!-- Colored dropdown menu -->
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
           <li>
             <a class="dropdown-item" href="/account">
@@ -369,7 +466,6 @@ $items = $service->getItems();
               <i class="fas fa-cog me-2" style="color: #198754;"></i> Settings
             </a>
           </li>
-          <!-- <li><hr class="dropdown-divider"></li> -->
           <li>
             <a class="dropdown-item" href="#" onclick="handleLogout(); return false;">
               <i class="fas fa-sign-out-alt me-2" style="color: #dc3545;"></i> Logout
@@ -413,7 +509,7 @@ $items = $service->getItems();
   <div class="content-wrapper p-4">
     <?php if ($msg): ?>
       <div class="alert alert-<?= h($msgType) ?> alert-dismissible fade show" role="alert">
-        <?= h($msg) ?>
+        <?= $msg ?>
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
       </div>
     <?php endif; ?>
@@ -425,18 +521,15 @@ $items = $service->getItems();
             <i class="bi bi-box-seam me-2"></i> Distribute Asset (Outgoing)
           </div>
           <div class="card-body">
-            <form method="POST">
+            <form method="POST" id="distributeForm">
               <input type="hidden" name="act_distribute_multi" value="1">
+              
+              <!-- SEARCH EMPLOYEE INPUT -->
               <div class="mb-3">
-                <label class="form-label">Employee</label>
-                <select name="employee_id" class="form-select" required>
-                  <option value="">Select Employee...</option>
-                  <?php foreach($employees as $e): ?>
-                    <option value="<?= h($e['EMPLOYEE_ID']) ?>">
-                      <?= h($e['FIRST_NAME'] . ' ' . $e['LAST_NAME']) ?>
-                    </option>
-                  <?php endforeach; ?>
-                </select>
+                <label class="form-label">Search Employee</label>
+                <input type="text" id="employee_search" class="form-control" placeholder="Type name or ID..." autocomplete="off" required>
+                <input type="hidden" name="employee_id" id="employee_id" required>
+                <div id="employee_results" class="list-group"></div>
               </div>
 
               <div class="mb-3">
@@ -469,20 +562,22 @@ $items = $service->getItems();
 
               <div class="d-grid gap-2">
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addRow()">+ Add Another Item</button>
-                <button class="btn btn-success">Assign Selected Items</button>
+                <button type="submit" class="btn btn-success">Assign Selected Items</button>
               </div>
             </form>
           </div>
         </div>
       </div>
 
+      <!-- Employee Possession List -->
       <div class="col-md-8">
         <div class="card shadow-sm">
           <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <span class="fw-bold">🎒 Employee Possession List</span>
             <span class="badge bg-secondary">Retrieve/Return items here</span>
           </div>
-          <div class="card-body p-0">
+
+          <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
               <thead class="table-light">
                 <tr>
@@ -520,6 +615,32 @@ $items = $service->getItems();
               </tbody>
             </table>
           </div>
+
+          <!-- PAGINATION FOOTER -->
+          <?php if ($totalPossessions > 0): ?>
+          <div class="card-footer d-flex justify-content-between align-items-center py-2 px-3">
+            <div class="d-flex align-items-center gap-2">
+              <?php if ($page > 1): ?>
+                <a class="btn btn-sm btn-outline-secondary" href="?page=<?= $page - 1 ?>">Previous</a>
+              <?php else: ?>
+                <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+              <?php endif; ?>
+              <span class="text-muted small">Page <?= $page ?> of <?= $totalPages ?></span>
+              <?php if ($page < $totalPages): ?>
+                <a class="btn btn-sm btn-outline-secondary" href="?page=<?= $page + 1 ?>">Next</a>
+              <?php else: ?>
+                <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+              <?php endif; ?>
+            </div>
+            <div class="text-muted small">
+              <?php
+                $start = $offset + 1;
+                $end = min($offset + $limit, $totalPossessions);
+                echo "Showing $start to $end of $totalPossessions entries";
+              ?>
+            </div>
+          </div>
+          <?php endif; ?>
         </div>
       </div>
     </div>
@@ -558,7 +679,7 @@ $items = $service->getItems();
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button class="btn btn-danger">Confirm Return</button>
+          <button type="submit" class="btn btn-danger">Confirm Return</button>
         </div>
       </form>
     </div>
@@ -618,10 +739,80 @@ function setupReturn(empId, itemNo, itemName, maxQty) {
     document.getElementById('ret_emp_id').value = empId;
     document.getElementById('ret_item_no').value = itemNo;
     document.getElementById('ret_item_name').value = itemName;
-    document.getElementById('ret_qty').value = maxQty;
-    document.getElementById('ret_qty').setAttribute('max', maxQty);
     document.getElementById('ret_max').textContent = maxQty;
+    document.getElementById('ret_qty').value = '';
 }
+
+// EMPLOYEE SEARCH FUNCTIONALITY
+const employeeSearch = document.getElementById('employee_search');
+const employeeIdInput = document.getElementById('employee_id');
+const resultsBox = document.getElementById('employee_results');
+
+let searchTimeout;
+
+employeeSearch.addEventListener('input', function() {
+    clearTimeout(searchTimeout);
+    const query = this.value.trim();
+    
+    if (query.length < 2) {
+        resultsBox.style.display = 'none';
+        return;
+    }
+
+    searchTimeout = setTimeout(() => {
+        fetch(`?api=search-employees&q=${encodeURIComponent(query)}`)
+            .then(res => res.json())
+            .then(employees => {
+                resultsBox.innerHTML = '';
+                if (employees.length === 0) {
+                    resultsBox.style.display = 'none';
+                    return;
+                }
+
+                employees.forEach(emp => {
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item';
+                    div.innerHTML = `
+                        <div><strong>${emp.FIRST_NAME} ${emp.LAST_NAME}</strong></div>
+                        <div class="small text-muted">${emp.EMPLOYEE_ID}</div>
+                    `;
+                    div.addEventListener('click', () => {
+                        employeeSearch.value = `${emp.FIRST_NAME} ${emp.LAST_NAME}`;
+                        employeeIdInput.value = emp.EMPLOYEE_ID;
+                        resultsBox.style.display = 'none';
+                    });
+                    resultsBox.appendChild(div);
+                });
+                resultsBox.style.display = 'block';
+            })
+            .catch(err => {
+                console.error('Search error:', err);
+                resultsBox.style.display = 'none';
+            });
+    }, 300);
+});
+
+// Hide dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    if (!employeeSearch.contains(e.target) && !resultsBox.contains(e.target)) {
+        resultsBox.style.display = 'none';
+    }
+});
+
+// Prevent form submission if employee not selected
+document.getElementById('distributeForm').addEventListener('submit', function(e) {
+    if (!employeeIdInput.value) {
+        e.preventDefault();
+        alert('Please select an employee from the search results.');
+    }
+});
+
+/* prevent mouse-wheel auto increment */
+document.addEventListener('wheel', function (e) {
+    if (document.activeElement.type === 'number') {
+        document.activeElement.blur();
+    }
+});
 
 const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 document.getElementById('currentDay').textContent = days[new Date().getDay()];
