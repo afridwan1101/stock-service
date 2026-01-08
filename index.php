@@ -70,7 +70,6 @@ if (isset($_GET['token']) && empty($_SESSION['token_consumed'])) {
         if (!empty($data['username'])) {
             $_SESSION['user_id'] = $data['username'];
             $_SESSION['role']    = $data['role'] ?? 'user';
-            // Optionally store fname if available
             $_SESSION['fname'] = $data['fname'] ?? $data['username'];
             header("Location: $BASE_URL");
             exit;
@@ -157,7 +156,6 @@ class DistributionService {
     }
 
     public function returnItem(array $data): void {
-
         $employeeId = $data['employee_id'];
         $itemNo     = $data['item_no'];
         $qty        = (int)$data['qty'];
@@ -167,7 +165,6 @@ class DistributionService {
             throw new RuntimeException("Return quantity must be greater than zero.");
         }
 
-        // Check current possession
         $stmtCheck = $this->pdo->prepare("
             SELECT CURRENT_POSSESSION
             FROM v_employee_asset_possession
@@ -186,8 +183,6 @@ class DistributionService {
 
         $this->pdo->beginTransaction();
         try {
-
-            // Header
             $stmt = $this->pdo->prepare("
                 INSERT INTO RETURN_ITEM
                 (COMPANY_ID, EMPLOYEE_ID, TGL_RETURN, DISPLAY_NAME, TYPE_RETURN, KET)
@@ -197,10 +192,8 @@ class DistributionService {
                 ':emp'   => $employeeId,
                 ':notes' => $notes
             ]);
-
             $returnId = $this->pdo->lastInsertId();
 
-            // Item master
             $stmtItem = $this->pdo->prepare("
                 SELECT ITEM_ID, ITEM_NO, ITEM_DESC, UOM
                 FROM ITEM_MASTER
@@ -213,7 +206,6 @@ class DistributionService {
                 throw new RuntimeException("Item not found.");
             }
 
-            // Detail
             $stmtDtl = $this->pdo->prepare("
                 INSERT INTO RETURN_ITEM_DTL
                 (RETURN_ID, ITEM_ID, ITEM_NO, ITEM_DESC, QTY, UOM)
@@ -532,6 +524,7 @@ $items = $service->getItems();
                 <div id="employee_results" class="list-group"></div>
               </div>
 
+              <!-- DISTRIBUTION: Condition Dropdown -->
               <div class="mb-3">
                 <label class="form-label">Distribution Notes</label>
                 <input type="text" name="notes" class="form-control" placeholder="Reason for assignment">
@@ -618,28 +611,30 @@ $items = $service->getItems();
 
           <!-- PAGINATION FOOTER -->
           <?php if ($totalPossessions > 0): ?>
-          <div class="card-footer d-flex justify-content-between align-items-center py-2 px-3">
-            <div class="d-flex align-items-center gap-2">
-              <?php if ($page > 1): ?>
-                <a class="btn btn-sm btn-outline-secondary" href="?page=<?= $page - 1 ?>">Previous</a>
-              <?php else: ?>
-                <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
-              <?php endif; ?>
-              <span class="text-muted small">Page <?= $page ?> of <?= $totalPages ?></span>
-              <?php if ($page < $totalPages): ?>
-                <a class="btn btn-sm btn-outline-secondary" href="?page=<?= $page + 1 ?>">Next</a>
-              <?php else: ?>
-                <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
-              <?php endif; ?>
+            <?php
+              $start = $offset + 1;
+              $end = min($offset + $limit, $totalPossessions);
+            ?>
+            <div class="card-footer py-2 px-3">
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div class="d-flex align-items-center gap-2">
+                  <?php if ($page > 1): ?>
+                    <a class="btn btn-sm btn-outline-secondary" href="?page=<?= $page - 1 ?>">Previous</a>
+                  <?php else: ?>
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
+                  <?php endif; ?>
+                  <span class="text-muted small">Page <?= $page ?> of <?= $totalPages ?></span>
+                  <?php if ($page < $totalPages): ?>
+                    <a class="btn btn-sm btn-outline-secondary" href="?page=<?= $page + 1 ?>">Next</a>
+                  <?php else: ?>
+                    <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
+                  <?php endif; ?>
+                </div>
+                <div class="text-muted small">
+                  Showing <?= $start ?> to <?= $end ?> of <?= $totalPossessions ?> entries
+                </div>
+              </div>
             </div>
-            <div class="text-muted small">
-              <?php
-                $start = $offset + 1;
-                $end = min($offset + $limit, $totalPossessions);
-                echo "Showing $start to $end of $totalPossessions entries";
-              ?>
-            </div>
-          </div>
           <?php endif; ?>
         </div>
       </div>
@@ -668,9 +663,10 @@ $items = $service->getItems();
           <div class="row g-2 mb-3">
             <div class="col-6">
               <label>Return Qty</label>
-              <input type="number" min="0" name="qty" id="ret_qty" class="form-control" required>
+              <input type="number" min="1" name="qty" id="ret_qty" class="form-control" required>
               <div class="form-text">Max: <span id="ret_max"></span></div>
             </div>
+            <!-- RETURN: Condition Dropdown -->
             <div class="col-6">
               <label>Condition/Notes</label>
               <input type="text" name="notes" class="form-control" placeholder="e.g. Good, Broken" required>

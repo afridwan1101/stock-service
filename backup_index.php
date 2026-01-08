@@ -31,7 +31,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'logout') {
 
     session_destroy();
 
-    // ✅ always return to CLEAN app URL
+    // always return to CLEAN app URL
     header("Location: $SSO_FRONTEND?returnUrl=" . urlencode($BASE_URL));
     exit;
 }
@@ -63,7 +63,7 @@ if (isset($_GET['token']) && empty($_SESSION['token_consumed'])) {
             $_SESSION['user_id'] = $data['username'];
             $_SESSION['role']    = $data['role'] ?? 'user';
 
-            // ✅ remove token from URL
+            // remove token from URL
             header("Location: $BASE_URL");
             exit;
         }
@@ -237,7 +237,7 @@ function h($v) { return htmlspecialchars((string)($v ?? ''), ENT_QUOTES); }
 </head>
 <body class="bg-light">
 
-<!-- ✅ Logout Button in Top-Right Corner -->
+<!-- Logout Button in Top-Right Corner -->
 <div class="position-fixed top-0 end-0 p-3" style="z-index: 1050;">
     <a href="?action=logout" class="btn btn-outline-danger btn-sm">
         <i class="bi bi-box-arrow-right"></i> Logout
