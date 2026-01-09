@@ -33,8 +33,10 @@ function getGreeting() {
 }
 
 // ---------------- CONFIG ----------------
-$SSO_FRONTEND = 'http://localhost:3000';
-$SSO_BACKEND  = 'http://localhost:5000';
+// $SSO_FRONTEND = 'http://localhost:3000';
+// $SSO_BACKEND  = 'http://localhost:5000';
+$SSO_FRONTEND = 'https://sso.ceresnl.com';
+$SSO_BACKEND  = 'https://sso.ceresnl.com:50443';
 
 $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
 $BASE_URL = $protocol . '://' . $_SERVER['HTTP_HOST'] . strtok($_SERVER['REQUEST_URI'], '?');
@@ -113,15 +115,24 @@ class DistributionService {
             throw new InvalidArgumentException("No items provided.");
         }
 
+        // Ensure required fields are present
+        if (empty($data['company_id'])) {
+            throw new RuntimeException("Company ID is missing for employee.");
+        }
+
         $this->pdo->beginTransaction();
         try {
+            // ✅ INSERT includes TYPE
             $stmtHeader = $this->pdo->prepare("
-                INSERT INTO USAGE_ITEM (COMPANY_ID, EMPLOYEE_ID, TGL_TRX, DISPLAY_NAME, KET) 
-                VALUES ('PT-DEF', :emp, NOW(), 'System User', :notes)
+                INSERT INTO USAGE_ITEM (COMPANY_ID, EMPLOYEE_ID, TGL_TRX, DISPLAY_NAME, KET, SK_NUMBER, TYPE) 
+                VALUES (:company_id, :emp, NOW(), 'System User', :notes, :sk_number, :type)
             ");
             $stmtHeader->execute([
-                ':emp'   => $data['employee_id'],
-                ':notes' => $data['notes'] ?? '',
+                ':company_id' => $data['company_id'],
+                ':emp'        => $data['employee_id'],
+                ':notes'      => $data['notes'] ?? '',
+                ':sk_number'  => $data['sk_number'] ?? '',
+                ':type'       => $data['type'] ?? '',
             ]);
             $usageId = $this->pdo->lastInsertId();
 
@@ -165,6 +176,14 @@ class DistributionService {
             throw new RuntimeException("Return quantity must be greater than zero.");
         }
 
+        // Fetch company_id for this employee
+        $empStmt = $this->pdo->prepare("SELECT COMPANY_ID FROM EMPLOYEE_TBL WHERE EMPLOYEE_ID = ?");
+        $empStmt->execute([$employeeId]);
+        $companyId = $empStmt->fetchColumn();
+        if (!$companyId) {
+            throw new RuntimeException("Employee or company not found.");
+        }
+
         $stmtCheck = $this->pdo->prepare("
             SELECT CURRENT_POSSESSION
             FROM v_employee_asset_possession
@@ -186,11 +205,12 @@ class DistributionService {
             $stmt = $this->pdo->prepare("
                 INSERT INTO RETURN_ITEM
                 (COMPANY_ID, EMPLOYEE_ID, TGL_RETURN, DISPLAY_NAME, TYPE_RETURN, KET)
-                VALUES ('PT-DEF', :emp, NOW(), 'System User', 'RETRIEVAL', :notes)
+                VALUES (:company_id, :emp, NOW(), 'System User', 'RETRIEVAL', :notes)
             ");
             $stmt->execute([
-                ':emp'   => $employeeId,
-                ':notes' => $notes
+                ':company_id' => $companyId,
+                ':emp'        => $employeeId,
+                ':notes'      => $notes
             ]);
             $returnId = $this->pdo->lastInsertId();
 
@@ -212,12 +232,12 @@ class DistributionService {
                 VALUES (:rid, :iid, :ino, :idesc, :qty, :uom)
             ");
             $stmtDtl->execute([
-                ':rid'   => $returnId,
-                ':iid'   => $item['ITEM_ID'],
-                ':ino'   => $item['ITEM_NO'],
-                ':idesc' => $item['ITEM_DESC'],
-                ':qty'   => $qty,
-                ':uom'   => $item['UOM']
+                ':rid'    => $returnId,
+                ':iid'    => $item['ITEM_ID'],
+                ':ino'    => $item['ITEM_NO'],
+                ':idesc'  => $item['ITEM_DESC'],
+                ':qty'    => $qty,
+                ':uom'    => $item['UOM']
             ]);
 
             $this->pdo->commit();
@@ -236,7 +256,7 @@ class DistributionService {
 
     public function getEmployees(): array {
         return $this->pdo->query("
-            SELECT e.EMPLOYEE_ID, p.FIRST_NAME, p.LAST_NAME 
+            SELECT e.EMPLOYEE_ID, p.FIRST_NAME, p.LAST_NAME, e.COMPANY_ID
             FROM EMPLOYEE_TBL e 
             JOIN PERSON_TBL p ON e.PERSON_ID = p.PERSON_ID 
             ORDER BY p.FIRST_NAME
@@ -298,13 +318,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (empty($_POST['employee_id'])) {
                 throw new Exception("Please select an employee.");
             }
+
+            // ✅ FETCH COMPANY_ID FROM EMPLOYEE
+            $empStmt = $pdo->prepare("SELECT COMPANY_ID FROM EMPLOYEE_TBL WHERE EMPLOYEE_ID = ?");
+            $empStmt->execute([$_POST['employee_id']]);
+            $empRow = $empStmt->fetch();
+            if (!$empRow) {
+                throw new Exception("Employee not found.");
+            }
+
+            // ✅ Pass 'type' from form
             $service->distributeItems([
                 'employee_id' => $_POST['employee_id'],
+                'company_id'  => $empRow['COMPANY_ID'],
                 'notes'       => $_POST['notes'] ?? '',
+                'sk_number'   => $_POST['sk_number'] ?? '',
+                'type'        => $_POST['type'] ?? '',
                 'items'       => $items
             ]);
             header("Location: $BASE_URL?msg=" . urlencode("Items Distributed Successfully") . "&msgType=success");
             exit;
+
         } elseif (isset($_POST['act_return'])) {
             $service->returnItem($_POST);
             header("Location: $BASE_URL?msg=" . urlencode("Item Retrieved (Returned) Successfully") . "&msgType=success");
@@ -524,10 +558,31 @@ $items = $service->getItems();
                 <div id="employee_results" class="list-group"></div>
               </div>
 
+              <!-- TYPE SELECT -->
+              <div class="mb-3">
+                <label class="form-label">Type</label>
+                <select name="type" class="form-select" required>
+                  <option value="">Select Type...</option>
+                  <option value="New">New</option>
+                  <option value="Usage">Usage</option>
+                </select>
+              </div>
+
               <!-- DISTRIBUTION: Condition Dropdown -->
               <div class="mb-3">
                 <label class="form-label">Distribution Notes</label>
-                <input type="text" name="notes" class="form-control" placeholder="Reason for assignment">
+                <input type="text" name="notes" class="form-control" placeholder="e.g: Good Condition, Defect, Broken, etc.">
+              </div>
+
+              <!-- SK Number -->
+              <div class="mb-3">
+                <label class="form-label">SK Number</label>
+                <input type="text" name="sk_number" class="form-control" placeholder="e.g: 19.22.360">
+              </div>
+
+              <!-- ✅ BUTTON NOW HIDDEN BY DEFAULT IN CONTAINER -->
+              <div class="d-grid gap-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addRow()">+ Add Another Item</button>
               </div>
 
               <div id="items-container">
@@ -553,10 +608,12 @@ $items = $service->getItems();
                 <?php endfor; ?>
               </div>
 
-              <div class="d-grid gap-2">
-                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addRow()">+ Add Another Item</button>
-                <button type="submit" class="btn btn-success">Assign Selected Items</button>
+              <div class="mb-3">
+                <div id="assignButtonContainer" style="display: none;">
+                  <button type="submit" class="btn btn-success">Assign Selected Items</button>
+                </div>
               </div>
+
             </form>
           </div>
         </div>
@@ -663,8 +720,8 @@ $items = $service->getItems();
           <div class="row g-2 mb-3">
             <div class="col-6">
               <label>Return Qty</label>
-              <input type="number" min="1" name="qty" id="ret_qty" class="form-control" required>
-              <div class="form-text">Max: <span id="ret_max"></span></div>
+              <input type="number" min="1" name="qty" id="ret_qty" class="form-control" placeholder="e.g. 1" required>
+              <div class="form-text">Current Qty: <span id="ret_max"></span></div>
             </div>
             <!-- RETURN: Condition Dropdown -->
             <div class="col-6">
@@ -698,6 +755,38 @@ $items = $service->getItems();
 <script>
 let rowIndex = 3;
 
+// ✅ NEW: Show/hide button based on valid selection
+function updateAssignButtonState() {
+    const rows = document.querySelectorAll('.item-row');
+    let hasValidRow = false;
+
+    for (const row of rows) {
+        const select = row.querySelector('select[name$="[item_id]"]');
+        const qtyInput = row.querySelector('input[name$="[qty]"]');
+
+        if (select && qtyInput) {
+            const itemId = select.value.trim();
+            const qty = parseFloat(qtyInput.value);
+
+            if (itemId && !isNaN(qty) && qty > 0) {
+                hasValidRow = true;
+                break;
+            }
+        }
+    }
+
+    document.getElementById('assignButtonContainer').style.display = hasValidRow ? 'block' : 'none';
+}
+
+// Attach to initial rows
+document.querySelectorAll('.item-row select, .item-row input[name$="[qty]"]').forEach(el => {
+    el.addEventListener('input', updateAssignButtonState);
+    el.addEventListener('change', updateAssignButtonState);
+});
+
+// Initial check (in case pre-filled)
+updateAssignButtonState();
+
 function addRow() {
   const container = document.getElementById('items-container');
   const newRow = document.createElement('div');
@@ -719,6 +808,17 @@ function addRow() {
     </div>
   `;
   container.appendChild(newRow);
+
+  // Attach listeners to new inputs
+  const newSelect = newRow.querySelector('select');
+  const newQty = newRow.querySelector('input[name$="[qty]"]');
+  if (newSelect) {
+    newSelect.addEventListener('change', updateAssignButtonState);
+  }
+  if (newQty) {
+    newQty.addEventListener('input', updateAssignButtonState);
+  }
+
   rowIndex++;
 }
 
@@ -726,6 +826,7 @@ function removeRow(button) {
   const rows = document.querySelectorAll('.item-row');
   if (rows.length > 1) {
     button.closest('.item-row').remove();
+    updateAssignButtonState(); // Re-check after removal
   } else {
     alert("At least one item row is required.");
   }
@@ -800,6 +901,13 @@ document.getElementById('distributeForm').addEventListener('submit', function(e)
     if (!employeeIdInput.value) {
         e.preventDefault();
         alert('Please select an employee from the search results.');
+        return;
+    }
+
+    // Extra safety: if container is hidden, prevent submit
+    if (document.getElementById('assignButtonContainer').style.display === 'none') {
+        e.preventDefault();
+        alert('Please select at least one item with a valid quantity.');
     }
 });
 
