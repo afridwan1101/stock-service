@@ -527,89 +527,85 @@ $items = $service->getItems();
     <div class="wrapper">
         <!-- Navbar -->
         <nav class="main-header navbar navbar-expand navbar-white navbar-light">
+
+            <!-- LEFT -->
             <ul class="navbar-nav">
                 <li class="nav-item">
-                    <a class="nav-link" data-widget="pushmenu" href="#" role="button"><i class="fas fa-bars"></i></a>
+                    <a class="nav-link" data-widget="pushmenu" href="#" role="button">
+                        <i class="fas fa-bars"></i>
+                    </a>
                 </li>
-                <li class="nav-item">
-                    <span class="nav-link" style="color: black; font-weight: bold; font-size: 15px;">
+                <li class="nav-item d-none d-sm-inline-block">
+                    <span class="nav-link font-weight-bold">
                         Happy, <span id="currentDay"></span>
                     </span>
                 </li>
             </ul>
 
-            <!-- PERFECTLY ALIGNED USER + GRID ICON -->
-            <div class="nav-item-aligned ms-auto me-3">
-                <!-- User Greeting Dropdown -->
-                <div class="nav-item dropdown">
-                    <a href="#" class="nav-link" role="button" id="userDropdown" data-bs-toggle="dropdown"
-                        aria-expanded="false">
-                        <i class="fas fa-user" style="color: #0d6efd;"></i>
-                        <span style="color: #000000;"><?= h(getGreeting()) ?>,
-                            <?= h($_SESSION['fname'] ?? 'Guest') ?></span>
+            <!-- RIGHT -->
+            <ul class="navbar-nav ml-auto">
+
+                <!-- USER DROPDOWN -->
+                <li class="nav-item dropdown">
+                    <a class="nav-link" data-toggle="dropdown" href="#">
+                        <i class="fas fa-user text-primary"></i>
+                        <span class="ml-1 text-dark">
+                            <?= h(getGreeting()) ?>, <?= h($_SESSION['fname'] ?? 'Guest') ?>
+                        </span>
                     </a>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                        <li><a class="dropdown-item" href="/account"><i class="fas fa-user-circle me-2"
-                                    style="color: #0d6efd;"></i> My Account</a></li>
-                        <li><a class="dropdown-item" href="/settings"><i class="fas fa-cog me-2"
-                                    style="color: #198754;"></i> Settings</a></li>
-                        <li><a class="dropdown-item" href="#" onclick="handleLogout(); return false;"><i
-                                    class="fas fa-sign-out-alt me-2" style="color: #dc3545;"></i> Logout</a></li>
-                    </ul>
-                </div>
+                    <div class="dropdown-menu dropdown-menu-right">
+                        <a href="/account" class="dropdown-item">
+                            <i class="fas fa-user-circle mr-2 text-primary"></i> My Account
+                        </a>
+                        <a href="/settings" class="dropdown-item">
+                            <i class="fas fa-cog mr-2 text-success"></i> Settings
+                        </a>
+                        <div class="dropdown-divider"></div>
+                        <a href="#" onclick="handleLogout();return false;" class="dropdown-item">
+                            <i class="fas fa-sign-out-alt mr-2 text-danger"></i> Logout
+                        </a>
+                    </div>
+                </li>
 
-                <!-- SSO Grid Icon Dropdown -->
-                <div class="nav-item dropdown">
-                    <a class="nav-link" href="#" role="button" id="ssoDropdown" data-bs-toggle="dropdown"
-                        aria-expanded="false">
-                        <i class="fas fa-th" style="color: red;"></i>
+                <!-- GRID / APP SWITCHER -->
+                <li class="nav-item dropdown">
+                    <a class="nav-link" data-toggle="dropdown" href="#">
+                        <i class="fas fa-th text-danger"></i>
                     </a>
-                    <!-- Dropdown menu as 2x2 grid -->
-                    <div class="dropdown-menu dropdown-menu-end p-3" style="min-width: 220px;"
-                        aria-labelledby="ssoDropdown">
 
-                        <div class="row g-2" style="width: 180px;">
-                            <!-- Item 1 -->
-                            <div class="col-6">
-                                <a class="d-flex flex-column align-items-center text-decoration-none text-dark"
-                                    href="https://dev.ceresnl.com/itam" target="_blank" rel="noopener noreferrer">
-                                    <i class="fas fa-file-alt fa-lg" style="color: #dc3545;"></i>
-                                    <small class="text-muted mt-1">Itam</small>
+                    <div class="dropdown-menu dropdown-menu-right p-3" style="width:220px;">
+                        <div class="row text-center">
+                            <div class="col-6 mb-3">
+                                <a href="https://dev.ceresnl.com/itam" target="_blank" class="text-dark">
+                                    <i class="fas fa-file-alt fa-lg text-danger"></i>
+                                    <div class="small mt-1">Itam</div>
                                 </a>
                             </div>
-
-                            <!-- Item 2 -->
-                            <div class="col-6">
-                                <a class="d-flex flex-column align-items-center text-decoration-none text-dark"
-                                    href="https://dev.ceresnl.com/hrd" target="_blank" rel="noopener noreferrer">
-                                    <i class="fas fa-book-open fa-lg" style="color: #065b97ff;"></i>
-                                    <small class="text-muted mt-1">Recruitment</small>
+                            <div class="col-6 mb-3">
+                                <a href="https://dev.ceresnl.com/hrd" target="_blank" class="text-dark">
+                                    <i class="fas fa-book-open fa-lg text-primary"></i>
+                                    <div class="small mt-1">Recruitment</div>
                                 </a>
                             </div>
-
-                            <!-- Item 3 -->
                             <div class="col-6">
-                                <a class="d-flex flex-column align-items-center text-decoration-none text-dark"
-                                    href="https://dev.ceresnl.com/incoming" target="_blank" rel="noopener noreferrer">
-                                    <i class="fas fa-bookmark fa-lg" style="color: #068f1fff;"></i>
-                                    <small class="text-muted mt-1">Incoming</small>
+                                <a href="https://dev.ceresnl.com/incoming" target="_blank" class="text-dark">
+                                    <i class="fas fa-bookmark fa-lg text-success"></i>
+                                    <div class="small mt-1">Incoming</div>
                                 </a>
                             </div>
-
-                            <!-- Item 4 -->
                             <div class="col-6">
-                                <a class="d-flex flex-column align-items-center text-decoration-none text-dark"
-                                    href="https://dev.ceresnl.com/outgoing" target="_blank" rel="noopener noreferrer">
-                                    <i class="fas fa-file-alt fa-lg" style="color: #dcd109ff;"></i>
-                                    <small class="text-muted mt-1">Outgoing</small>
+                                <a href="https://dev.ceresnl.com/outgoing" target="_blank" class="text-dark">
+                                    <i class="fas fa-file-alt fa-lg text-warning"></i>
+                                    <div class="small mt-1">Outgoing</div>
                                 </a>
                             </div>
                         </div>
-
                     </div>
-                </div>
-            </div>
+                </li>
+
+            </ul>
         </nav>
+
 
         <!-- Main Sidebar Container -->
         <aside class="main-sidebar sidebar-dark-primary elevation-4">
