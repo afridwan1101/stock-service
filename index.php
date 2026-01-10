@@ -2,11 +2,10 @@
 // =======================================
 //  STOCK SERVICE - index.php (SSO Protected)
 // =======================================
-
 if (session_status() === PHP_SESSION_NONE) {
     session_set_cookie_params([
         'path'     => '/',
-        'secure'   => false, // ← set true in production with HTTPS
+        'Secure'   => false,
         'httponly' => true,
         'samesite' => 'Lax',
     ]);
@@ -22,7 +21,6 @@ function h($v) {
 function getGreeting() {
     $dt = new DateTime('now', new DateTimeZone('Asia/Jakarta'));
     $hour = (int) $dt->format('H');
-
     if ($hour >= 18) {
         return "Good Evening";
     } elseif ($hour >= 12) {
@@ -35,9 +33,11 @@ function getGreeting() {
 // ---------------- CONFIG ----------------
 $SSO_FRONTEND = 'https://sso.ceresnl.com';
 $SSO_BACKEND  = 'https://sso.ceresnl.com:50443';
-
 $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
 $BASE_URL = $protocol . '://' . $_SERVER['HTTP_HOST'] . strtok($_SERVER['REQUEST_URI'], '?');
+
+// 👇 ADD THIS: DYNAMIC APP BASE PATH (e.g., /outgoing)
+$APP_BASE = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\') ?: '/';
 
 // ---------------- LOGOUT ----------------
 if (isset($_GET['action']) && $_GET['action'] === 'logout') {
@@ -50,7 +50,6 @@ if (isset($_GET['action']) && $_GET['action'] === 'logout') {
 if (isset($_GET['token']) && empty($_SESSION['token_consumed'])) {
     $_SESSION['token_consumed'] = true;
     $token = $_GET['token'];
-
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL            => "$SSO_BACKEND/api/validate-token",
@@ -60,11 +59,9 @@ if (isset($_GET['token']) && empty($_SESSION['token_consumed'])) {
         CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
         CURLOPT_TIMEOUT        => 10,
     ]);
-
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-
     if ($httpCode === 200) {
         $data = json_decode($response, true);
         if (!empty($data['username'])) {
@@ -75,7 +72,6 @@ if (isset($_GET['token']) && empty($_SESSION['token_consumed'])) {
             exit;
         }
     }
-
     session_destroy();
     header("Location: $SSO_FRONTEND");
     exit;
@@ -84,6 +80,189 @@ if (isset($_GET['token']) && empty($_SESSION['token_consumed'])) {
 // ------------- AUTH CHECK ---------------
 if (empty($_SESSION['user_id'])) {
     header("Location: $SSO_FRONTEND?returnUrl=" . urlencode($BASE_URL));
+    exit;
+}
+
+// ---------------- MY ACCOUNT VIEW (SESSION ONLY) ----------------
+if (isset($_GET['view']) && $_GET['view'] === 'my-account') {
+    $email = $_SESSION['user_id'];
+    $name  = $_SESSION['fname'] ?? $email;
+    $role  = $_SESSION['role'] ?? 'user';
+    $statusText = 'Active';
+    $statusClass = 'success';
+    ?>
+<!DOCTYPE html>
+<html lang="en-US">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>My Account</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="plugins/fontawesome-free/css/all.min.css">
+    <!-- AdminLTE -->
+    <link rel="stylesheet" href="dist/css/adminlte.min.css">
+    <style>
+    .profile-card {
+        max-width: 600px;
+        margin: 2rem auto;
+        box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+    }
+
+    .profile-header {
+        background: linear-gradient(135deg, #083652, #1a5c8c);
+        color: white;
+        padding: 1.5rem;
+        text-align: center;
+        border-radius: 0.5rem 0.5rem 0 0;
+    }
+
+    .profile-body {
+        padding: 2rem;
+    }
+
+    .profile-item {
+        margin-bottom: 1rem;
+    }
+
+    .profile-label {
+        font-weight: bold;
+        color: #555;
+    }
+
+    /* Sidebar styling */
+    .main-sidebar {
+        background-color: #083652 !important;
+    }
+
+    .main-sidebar .brand-link {
+        background-color: #083652 !important;
+        color: #fff !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .main-sidebar .sidebar {
+        background-color: #083652 !important;
+    }
+
+    .main-sidebar .nav-sidebar>.nav-item>.nav-link,
+    .main-sidebar .nav-header {
+        color: rgba(255, 255, 255, 0.85);
+    }
+
+    .main-sidebar .nav-sidebar>.nav-item>.nav-link:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+        color: #fff;
+    }
+
+    .main-sidebar .nav-sidebar>.nav-item>.nav-link.active,
+    .main-sidebar .nav-sidebar>.nav-item>.nav-link.active:hover {
+        background-color: rgba(255, 255, 255, 0.2);
+        color: #fff;
+    }
+    </style>
+</head>
+
+<body class="hold-transition sidebar-mini layout-navbar-fixed layout-fixed">
+    <div class="wrapper">
+        <!-- Navbar -->
+        <nav class="main-header navbar navbar-expand navbar-white navbar-light">
+            <ul class="navbar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" data-widget="pushmenu" href="#" role="button">
+                        <i class="fas fa-bars"></i>
+                    </a>
+                </li>
+            </ul>
+            <ul class="navbar-nav ml-auto">
+                <li class="nav-item dropdown">
+                    <a class="nav-link" data-toggle="dropdown" href="#">
+                        <i class="fas fa-user text-primary"></i>
+                        <span class="ml-1 text-dark"><?= h(getGreeting()) ?>, <?= h($name) ?></span>
+                    </a>
+                    <div class="dropdown-menu dropdown-menu-right">
+                        <a href="<?= h($APP_BASE) ?>/?view=my-account" class="dropdown-item active">
+                            <i class="fas fa-user-circle mr-2 text-primary"></i> My Account
+                        </a>
+                        <a href="<?= h($APP_BASE) ?>/settings" class="dropdown-item">
+                            <i class="fas fa-cog mr-2 text-success"></i> Settings
+                        </a>
+                        <div class="dropdown-divider"></div>
+                        <a href="#" onclick="handleLogout();return false;" class="dropdown-item">
+                            <i class="fas fa-sign-out-alt mr-2 text-danger"></i> Logout
+                        </a>
+                    </div>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Sidebar -->
+        <aside class="main-sidebar sidebar-dark-primary elevation-4">
+            <a href="<?= h($APP_BASE) ?>/" class="brand-link">
+                <img src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEino1q43LiUDhvzaUKJx82I0jXa30TpJqhGexeJnoji_0zf3Pjog4aW099h1HkfXjso-LnNqizIlBYKaBeChFVH67LsLUcQ-cG_S92GC63DydTpSJ51gnakLJaYdi43EPARUrw_J2HtK5BA7y0ETAgVUJoINVjkxAhGJNmfRVvfFMYJkLzNp5J8uqrDhWs/s325/logoapp-red.png"
+                    alt="AdminLTE Logo" class="brand-image img-circle elevation-3" style="opacity: .8">
+                <span class="brand-text font-weight-light">Inventory Distribution</span>
+            </a>
+            <div class="sidebar">
+                <nav class="mt-2">
+                    <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu"
+                        data-accordion="false">
+                        <li class="nav-item">
+                            <a href="<?= h($APP_BASE) ?>/" class="nav-link">
+                                <i class="nav-icon fas fa-home"></i>
+                                <p>Dashboard</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="<?= h($APP_BASE) ?>/?view=my-account" class="nav-link active">
+                                <i class="nav-icon fas fa-user"></i>
+                                <p>My Account</p>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+        </aside>
+
+        <!-- Content -->
+        <div class="content-wrapper p-4">
+            <div class="container-fluid">
+                <div class="profile-card card">
+                    <div class="profile-header">
+                        <h4><?= h($name) ?></h4>
+                        <p class="mb-0"><?= h($email) ?></p>
+                    </div>
+                    <div class="profile-body">
+                        <div class="profile-item"><span class="profile-label">Full Name:</span><br><?= h($name) ?></div>
+                        <div class="profile-item"><span class="profile-label">Email:</span><br><?= h($email) ?></div>
+                        <div class="profile-item"><span class="profile-label">Role:</span><br><?= h(ucfirst($role)) ?>
+                        </div>
+                        <div class="profile-item">
+                            <span class="profile-label">Status:</span><br>
+                            <span class="badge bg-<?= $statusClass ?>"><?= $statusText ?></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scripts -->
+        <script src="plugins/jquery/jquery.min.js"></script>
+        <script src="plugins/bootstrap/js/bootstrap.bundle.min.js"></script>
+        <script src="dist/js/adminlte.js"></script>
+        <script>
+        function handleLogout() {
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.href = '?action=logout';
+        }
+        </script>
+</body>
+
+</html>
+<?php
     exit;
 }
 
@@ -107,20 +286,17 @@ try {
 // ---------------- SERVICE ----------------
 class DistributionService {
     public function __construct(private PDO $pdo) {}
-
     public function distributeItems(array $data): void {
         if (empty($data['items']) || !is_array($data['items'])) {
             throw new InvalidArgumentException("No items provided.");
         }
-
         if (empty($data['company_id'])) {
             throw new RuntimeException("Company ID is missing for employee.");
         }
-
         $this->pdo->beginTransaction();
         try {
             $stmtHeader = $this->pdo->prepare("
-                INSERT INTO USAGE_ITEM (COMPANY_ID, EMPLOYEE_ID, TGL_TRX, DISPLAY_NAME, KET, SK_NUMBER, TYPE) 
+                INSERT INTO USAGE_ITEM (COMPANY_ID, EMPLOYEE_ID, TGL_TRX, DISPLAY_NAME, KET, SK_NUMBER, TYPE)
                 VALUES (:company_id, :emp, NOW(), 'System User', :notes, :sk_number, :type)
             ");
             $stmtHeader->execute([
@@ -131,20 +307,16 @@ class DistributionService {
                 ':type'       => $data['type'] ?? '',
             ]);
             $usageId = $this->pdo->lastInsertId();
-
             $stmtDtl = $this->pdo->prepare("
-                INSERT INTO USAGE_ITEM_DTL (USAGE_ID, ITEM_ID, ITEM_NO, ITEM_DESC, QTY, UOM) 
+                INSERT INTO USAGE_ITEM_DTL (USAGE_ID, ITEM_ID, ITEM_NO, ITEM_DESC, QTY, UOM)
                 VALUES (:uid, :iid, :ino, :idesc, :qty, :uom)
             ");
-
             foreach ($data['items'] as $itemInput) {
                 if (empty($itemInput['item_id']) || empty($itemInput['qty'])) continue;
-
                 $item = $this->getItemInfo($itemInput['item_id']);
                 if (!$item) {
                     throw new RuntimeException("Item ID {$itemInput['item_id']} not found.");
                 }
-
                 $stmtDtl->execute([
                     ':uid'    => $usageId,
                     ':iid'    => $item['ITEM_ID'],
@@ -154,31 +326,26 @@ class DistributionService {
                     ':uom'    => $item['UOM']
                 ]);
             }
-
             $this->pdo->commit();
         } catch (Exception $e) {
             $this->pdo->rollBack();
             throw $e;
         }
     }
-
     public function returnItem(array $data): void {
         $employeeId = $data['employee_id'];
         $itemNo     = $data['item_no'];
         $qty        = (int)$data['qty'];
         $notes      = $data['notes'] ?? '';
-
         if ($qty <= 0) {
             throw new RuntimeException("Return quantity must be greater than zero.");
         }
-
         $empStmt = $this->pdo->prepare("SELECT COMPANY_ID FROM EMPLOYEE_TBL WHERE EMPLOYEE_ID = ?");
         $empStmt->execute([$employeeId]);
         $companyId = $empStmt->fetchColumn();
         if (!$companyId) {
             throw new RuntimeException("Employee or company not found.");
         }
-
         $stmtCheck = $this->pdo->prepare("
             SELECT CURRENT_POSSESSION
             FROM v_employee_asset_possession
@@ -186,15 +353,12 @@ class DistributionService {
         ");
         $stmtCheck->execute([$employeeId, $itemNo]);
         $current = (int)$stmtCheck->fetchColumn();
-
         if ($current <= 0) {
             throw new RuntimeException("Employee does not hold this item.");
         }
-
         if ($qty > $current) {
             throw new RuntimeException("Return quantity exceeds held quantity.");
         }
-
         $this->pdo->beginTransaction();
         try {
             $stmt = $this->pdo->prepare("
@@ -208,7 +372,6 @@ class DistributionService {
                 ':notes'      => $notes
             ]);
             $returnId = $this->pdo->lastInsertId();
-
             $stmtItem = $this->pdo->prepare("
                 SELECT ITEM_ID, ITEM_NO, ITEM_DESC, UOM
                 FROM ITEM_MASTER
@@ -216,11 +379,9 @@ class DistributionService {
             ");
             $stmtItem->execute([$itemNo]);
             $item = $stmtItem->fetch();
-
             if (!$item) {
                 throw new RuntimeException("Item not found.");
             }
-
             $stmtDtl = $this->pdo->prepare("
                 INSERT INTO RETURN_ITEM_DTL
                 (RETURN_ID, ITEM_ID, ITEM_NO, ITEM_DESC, QTY, UOM)
@@ -234,34 +395,29 @@ class DistributionService {
                 ':qty'    => $qty,
                 ':uom'    => $item['UOM']
             ]);
-
             $this->pdo->commit();
         } catch (Exception $e) {
             $this->pdo->rollBack();
             throw $e;
         }
     }
-
     private function getItemInfo($id) {
         $stmt = $this->pdo->prepare("SELECT * FROM ITEM_MASTER WHERE ITEM_ID = ?");
         $stmt->execute([$id]);
         return $stmt->fetch();
     }
-
     public function getEmployees(): array {
         return $this->pdo->query("
             SELECT e.EMPLOYEE_ID, p.FIRST_NAME, p.LAST_NAME, e.COMPANY_ID
-            FROM EMPLOYEE_TBL e 
-            JOIN PERSON_TBL p ON e.PERSON_ID = p.PERSON_ID 
+            FROM EMPLOYEE_TBL e
+            JOIN PERSON_TBL p ON e.PERSON_ID = p.PERSON_ID
             ORDER BY p.FIRST_NAME
         ")->fetchAll();
     }
-
     public function getItems(): array {
         return $this->pdo->query("SELECT ITEM_ID, ITEM_DESC, ITEM_NO FROM ITEM_MASTER ORDER BY ITEM_DESC")->fetchAll();
     }
 }
-
 $service = new DistributionService($pdo);
 
 // ---------------- EMPLOYEE SEARCH API ----------------
@@ -269,12 +425,11 @@ if (isset($_GET['api']) && $_GET['api'] === 'search-employees') {
     header('Content-Type: application/json');
     $term = trim($_GET['q'] ?? '');
     $results = [];
-
     if (strlen($term) >= 2) {
         $stmt = $pdo->prepare("
-            SELECT e.EMPLOYEE_ID, p.FIRST_NAME, p.LAST_NAME 
-            FROM EMPLOYEE_TBL e 
-            JOIN PERSON_TBL p ON e.PERSON_ID = p.PERSON_ID 
+            SELECT e.EMPLOYEE_ID, p.FIRST_NAME, p.LAST_NAME
+            FROM EMPLOYEE_TBL e
+            JOIN PERSON_TBL p ON e.PERSON_ID = p.PERSON_ID
             WHERE p.FIRST_NAME LIKE ? OR p.LAST_NAME LIKE ? OR e.EMPLOYEE_ID LIKE ?
             ORDER BY p.FIRST_NAME
             LIMIT 10
@@ -283,7 +438,6 @@ if (isset($_GET['api']) && $_GET['api'] === 'search-employees') {
         $stmt->execute([$like, $like, $like]);
         $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
-
     echo json_encode($results);
     exit;
 }
@@ -312,14 +466,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (empty($_POST['employee_id'])) {
                 throw new Exception("Please select an employee.");
             }
-
             $empStmt = $pdo->prepare("SELECT COMPANY_ID FROM EMPLOYEE_TBL WHERE EMPLOYEE_ID = ?");
             $empStmt->execute([$_POST['employee_id']]);
             $empRow = $empStmt->fetch();
             if (!$empRow) {
                 throw new Exception("Employee not found.");
             }
-
             $service->distributeItems([
                 'employee_id' => $_POST['employee_id'],
                 'company_id'  => $empRow['COMPANY_ID'],
@@ -330,7 +482,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             header("Location: $BASE_URL?msg=" . urlencode("Items Distributed Successfully") . "&msgType=success");
             exit;
-
         } elseif (isset($_POST['act_return'])) {
             $service->returnItem($_POST);
             header("Location: $BASE_URL?msg=" . urlencode("Item Retrieved (Returned) Successfully") . "&msgType=success");
@@ -347,13 +498,11 @@ $limit = 10;
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $page = max(1, $page);
 $offset = ($page - 1) * $limit;
-
 $totalPossessions = $pdo->query("SELECT COUNT(*) FROM v_employee_asset_possession")->fetchColumn();
 $totalPossessions = (int)$totalPossessions;
 $totalPages = ceil($totalPossessions / $limit);
-
 $stmt = $pdo->prepare("
-    SELECT v.*, p.FIRST_NAME 
+    SELECT v.*, p.FIRST_NAME
     FROM v_employee_asset_possession v
     JOIN EMPLOYEE_TBL e ON v.EMPLOYEE_ID = e.EMPLOYEE_ID
     JOIN PERSON_TBL p ON e.PERSON_ID = p.PERSON_ID
@@ -364,11 +513,9 @@ $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
 $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $possessions = $stmt->fetchAll();
-
 $employees = $service->getEmployees();
 $items = $service->getItems();
 ?>
-
 <!DOCTYPE html>
 <html lang="en-US">
 
@@ -387,7 +534,6 @@ $items = $service->getItems();
     <link rel="stylesheet" href="dist/css/adminlte.min.css">
     <!-- Google Font: Source Sans Pro -->
     <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700" rel="stylesheet">
-
     <style>
     body {
         font-size: 0.875rem;
@@ -487,9 +633,7 @@ $items = $service->getItems();
         margin: 0;
         vertical-align: middle;
     }
-    </style>
 
-    <style>
     .main-sidebar {
         background-color: #083652 !important;
     }
@@ -520,15 +664,12 @@ $items = $service->getItems();
         color: #fff;
     }
     </style>
-
 </head>
 
 <body class="hold-transition sidebar-mini layout-navbar-fixed layout-fixed sidebar-collapse">
     <div class="wrapper">
         <!-- Navbar -->
         <nav class="main-header navbar navbar-expand navbar-white navbar-light">
-
-            <!-- LEFT -->
             <ul class="navbar-nav">
                 <li class="nav-item">
                     <a class="nav-link" data-widget="pushmenu" href="#" role="button">
@@ -541,11 +682,7 @@ $items = $service->getItems();
                     </span>
                 </li>
             </ul>
-
-            <!-- RIGHT -->
             <ul class="navbar-nav ml-auto">
-
-                <!-- USER DROPDOWN -->
                 <li class="nav-item dropdown">
                     <a class="nav-link" data-toggle="dropdown" href="#">
                         <i class="fas fa-user text-primary"></i>
@@ -554,10 +691,10 @@ $items = $service->getItems();
                         </span>
                     </a>
                     <div class="dropdown-menu dropdown-menu-right">
-                        <a href="/account" class="dropdown-item">
+                        <a href="<?= h($APP_BASE) ?>/?view=my-account" class="dropdown-item">
                             <i class="fas fa-user-circle mr-2 text-primary"></i> My Account
                         </a>
-                        <a href="/settings" class="dropdown-item">
+                        <a href="<?= h($APP_BASE) ?>/settings" class="dropdown-item">
                             <i class="fas fa-cog mr-2 text-success"></i> Settings
                         </a>
                         <div class="dropdown-divider"></div>
@@ -566,13 +703,10 @@ $items = $service->getItems();
                         </a>
                     </div>
                 </li>
-
-                <!-- GRID / APP SWITCHER -->
                 <li class="nav-item dropdown">
                     <a class="nav-link" data-toggle="dropdown" href="#">
                         <i class="fas fa-th text-danger"></i>
                     </a>
-
                     <div class="dropdown-menu dropdown-menu-right p-3" style="width:220px;">
                         <div class="row text-center">
                             <div class="col-6 mb-3">
@@ -602,14 +736,11 @@ $items = $service->getItems();
                         </div>
                     </div>
                 </li>
-
             </ul>
         </nav>
-
-
         <!-- Main Sidebar Container -->
         <aside class="main-sidebar sidebar-dark-primary elevation-4">
-            <a href="#" class="brand-link">
+            <a href="<?= h($APP_BASE) ?>/" class="brand-link">
                 <img src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEino1q43LiUDhvzaUKJx82I0jXa30TpJqhGexeJnoji_0zf3Pjog4aW099h1HkfXjso-LnNqizIlBYKaBeChFVH67LsLUcQ-cG_S92GC63DydTpSJ51gnakLJaYdi43EPARUrw_J2HtK5BA7y0ETAgVUJoINVjkxAhGJNmfRVvfFMYJkLzNp5J8uqrDhWs/s325/logoapp-red.png"
                     alt="AdminLTE Logo" class="brand-image img-circle elevation-3" style="opacity: .8">
                 <span class="brand-text font-weight-light">Inventory Distribution</span>
@@ -618,14 +749,14 @@ $items = $service->getItems();
                 <nav class="mt-2">
                     <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu"
                         data-accordion="false">
-                        <li class="nav-item has-treeview menu-open">
-                            <a href="#" class="nav-link active">
+                        <li class="nav-item">
+                            <a href="<?= h($APP_BASE) ?>/" class="nav-link active">
                                 <i class="nav-icon fas fa-home"></i>
                                 <p>Dashboard</p>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a href="#" class="nav-link">
+                            <a href="<?= h($APP_BASE) ?>/?view=my-account" class="nav-link">
                                 <i class="nav-icon fas fa-user"></i>
                                 <p>My Account</p>
                             </a>
@@ -634,7 +765,6 @@ $items = $service->getItems();
                 </nav>
             </div>
         </aside>
-
         <!-- Content Wrapper -->
         <div class="content-wrapper p-4">
             <?php if ($msg): ?>
@@ -643,7 +773,6 @@ $items = $service->getItems();
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
             <?php endif; ?>
-
             <div class="row g-4">
                 <div class="col-md-4">
                     <div class="card shadow-sm border-success h-100">
@@ -653,7 +782,6 @@ $items = $service->getItems();
                         <div class="card-body">
                             <form method="POST" id="distributeForm">
                                 <input type="hidden" name="act_distribute_multi" value="1">
-
                                 <!-- SEARCH EMPLOYEE INPUT -->
                                 <div class="mb-3">
                                     <label class="form-label">Search Employee</label>
@@ -662,7 +790,6 @@ $items = $service->getItems();
                                     <input type="hidden" name="employee_id" id="employee_id" required>
                                     <div id="employee_results" class="list-group"></div>
                                 </div>
-
                                 <!-- TYPE SELECT -->
                                 <div class="mb-3">
                                     <label class="form-label">Type</label>
@@ -672,27 +799,23 @@ $items = $service->getItems();
                                         <option value="Usage">Usage</option>
                                     </select>
                                 </div>
-
                                 <!-- DISTRIBUTION: Condition Dropdown -->
                                 <div class="mb-3">
                                     <label class="form-label">Distribution Notes</label>
                                     <input type="text" name="notes" class="form-control"
                                         placeholder="e.g: Good Condition, Defect, Broken, etc.">
                                 </div>
-
                                 <!-- SK Number -->
                                 <div class="mb-3">
                                     <label class="form-label">SK Number</label>
                                     <input type="text" name="sk_number" class="form-control"
                                         placeholder="e.g: 19.22.360">
                                 </div>
-
                                 <!-- BUTTON NOW HIDDEN BY DEFAULT IN CONTAINER -->
                                 <div class="d-grid gap-2">
                                     <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addRow()">+
                                         Add Another Item</button>
                                 </div>
-
                                 <div id="items-container">
                                     <?php for ($i = 0; $i < 3; $i++): ?>
                                     <div class="row g-2 mb-2 item-row">
@@ -717,18 +840,15 @@ $items = $service->getItems();
                                     </div>
                                     <?php endfor; ?>
                                 </div>
-
                                 <div class="mb-3">
                                     <div id="assignButtonContainer" style="display: none;">
                                         <button type="submit" class="btn btn-success">Assign Selected Items</button>
                                     </div>
                                 </div>
-
                             </form>
                         </div>
                     </div>
                 </div>
-
                 <!-- Employee Possession List -->
                 <div class="col-md-8">
                     <div class="card shadow-sm">
@@ -736,7 +856,6 @@ $items = $service->getItems();
                             <span class="fw-bold">🎒 Employee Possession List</span>
                             <span class="badge bg-secondary">Retrieve/Return items here</span>
                         </div>
-
                         <div class="table-responsive">
                             <table class="table table-hover align-middle mb-0">
                                 <thead class="table-light">
@@ -779,25 +898,25 @@ $items = $service->getItems();
                                 </tbody>
                             </table>
                         </div>
-
                         <!-- PAGINATION FOOTER -->
                         <?php if ($totalPossessions > 0): ?>
                         <?php
-              $start = $offset + 1;
-              $end = min($offset + $limit, $totalPossessions);
-            ?>
+$start = $offset + 1;
+$end = min($offset + $limit, $totalPossessions);
+?>
                         <div class="card-footer py-2 px-3">
                             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <?php if ($page > 1): ?>
                                     <a class="btn btn-sm btn-outline-secondary"
-                                        href="?page=<?= $page - 1 ?>">Previous</a>
+                                        href="<?= h($APP_BASE) ?>/?page=<?= $page - 1 ?>">Previous</a>
                                     <?php else: ?>
                                     <button class="btn btn-sm btn-outline-secondary" disabled>Previous</button>
                                     <?php endif; ?>
                                     <span class="text-muted small">Page <?= $page ?> of <?= $totalPages ?></span>
                                     <?php if ($page < $totalPages): ?>
-                                    <a class="btn btn-sm btn-outline-secondary" href="?page=<?= $page + 1 ?>">Next</a>
+                                    <a class="btn btn-sm btn-outline-secondary"
+                                        href="<?= h($APP_BASE) ?>/?page=<?= $page + 1 ?>">Next</a>
                                     <?php else: ?>
                                     <button class="btn btn-sm btn-outline-secondary" disabled>Next</button>
                                     <?php endif; ?>
@@ -812,7 +931,6 @@ $items = $service->getItems();
                 </div>
             </div>
         </div>
-
         <!-- Return Modal -->
         <div class="modal fade" id="returnModal" tabindex="-1">
             <div class="modal-dialog">
@@ -853,7 +971,6 @@ $items = $service->getItems();
                 </form>
             </div>
         </div>
-
         <footer class="main-footer">
             <strong>Development</strong>
             <span>All rights reserved.</span>
@@ -862,7 +979,6 @@ $items = $service->getItems();
             </div>
         </footer>
     </div>
-
     <!-- Scripts -->
     <script src="plugins/jquery/jquery.min.js"></script>
     <script src="plugins/bootstrap/js/bootstrap.bundle.min.js"></script>
@@ -874,30 +990,24 @@ $items = $service->getItems();
     function updateAssignButtonState() {
         const rows = document.querySelectorAll('.item-row');
         let hasValidRow = false;
-
         for (const row of rows) {
             const select = row.querySelector('select[name$="[item_id]"]');
             const qtyInput = row.querySelector('input[name$="[qty]"]');
-
             if (select && qtyInput) {
                 const itemId = select.value.trim();
                 const qty = parseFloat(qtyInput.value);
-
                 if (itemId && !isNaN(qty) && qty > 0) {
                     hasValidRow = true;
                     break;
                 }
             }
         }
-
         document.getElementById('assignButtonContainer').style.display = hasValidRow ? 'block' : 'none';
     }
-
     document.querySelectorAll('.item-row select, .item-row input[name$="[qty]"]').forEach(el => {
         el.addEventListener('input', updateAssignButtonState);
         el.addEventListener('change', updateAssignButtonState);
     });
-
     updateAssignButtonState();
 
     function addRow() {
@@ -905,23 +1015,22 @@ $items = $service->getItems();
         const newRow = document.createElement('div');
         newRow.className = 'row g-2 mb-2 item-row';
         newRow.innerHTML = `
-    <div class="col-7">
-      <select name="items[${rowIndex}][item_id]" class="form-select">
-        <option value="">Select Item...</option>
-        <?php foreach($items as $itm): ?>
-          <option value="<?= h($itm['ITEM_ID']) ?>"><?= h($itm['ITEM_DESC']) ?> (<?= h($itm['ITEM_NO']) ?>)</option>
-        <?php endforeach; ?>
-      </select>
-    </div>
-    <div class="col-4">
-      <input type="number" min="0.01" step="0.01" name="items[${rowIndex}][qty]" class="form-control" placeholder="Qty">
-    </div>
-    <div class="col-1 d-flex align-items-center">
-      <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">✕</button>
-    </div>
-  `;
+        <div class="col-7">
+            <select name="items[${rowIndex}][item_id]" class="form-select">
+                <option value="">Select Item...</option>
+                <?php foreach($items as $itm): ?>
+                <option value="<?= h($itm['ITEM_ID']) ?>"><?= h($itm['ITEM_DESC']) ?> (<?= h($itm['ITEM_NO']) ?>)</option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-4">
+            <input type="number" min="0.01" step="0.01" name="items[${rowIndex}][qty]" class="form-control" placeholder="Qty">
+        </div>
+        <div class="col-1 d-flex align-items-center">
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">✕</button>
+        </div>
+    `;
         container.appendChild(newRow);
-
         const newSelect = newRow.querySelector('select');
         const newQty = newRow.querySelector('input[name$="[qty]"]');
         if (newSelect) {
@@ -930,7 +1039,6 @@ $items = $service->getItems();
         if (newQty) {
             newQty.addEventListener('input', updateAssignButtonState);
         }
-
         rowIndex++;
     }
 
@@ -951,22 +1059,17 @@ $items = $service->getItems();
         document.getElementById('ret_max').textContent = maxQty;
         document.getElementById('ret_qty').value = '';
     }
-
     const employeeSearch = document.getElementById('employee_search');
     const employeeIdInput = document.getElementById('employee_id');
     const resultsBox = document.getElementById('employee_results');
-
     let searchTimeout;
-
     employeeSearch.addEventListener('input', function() {
         clearTimeout(searchTimeout);
         const query = this.value.trim();
-
         if (query.length < 2) {
             resultsBox.style.display = 'none';
             return;
         }
-
         searchTimeout = setTimeout(() => {
             fetch(`?api=search-employees&q=${encodeURIComponent(query)}`)
                 .then(res => res.json())
@@ -976,14 +1079,13 @@ $items = $service->getItems();
                         resultsBox.style.display = 'none';
                         return;
                     }
-
                     employees.forEach(emp => {
                         const div = document.createElement('div');
                         div.className = 'list-group-item';
                         div.innerHTML = `
-                        <div><strong>${emp.FIRST_NAME} ${emp.LAST_NAME}</strong></div>
-                        <div class="small text-muted">${emp.EMPLOYEE_ID}</div>
-                    `;
+                    <div><strong>${emp.FIRST_NAME} ${emp.LAST_NAME}</strong></div>
+                    <div class="small text-muted">${emp.EMPLOYEE_ID}</div>
+                `;
                         div.addEventListener('click', () => {
                             employeeSearch.value =
                                 `${emp.FIRST_NAME} ${emp.LAST_NAME}`;
@@ -1000,32 +1102,27 @@ $items = $service->getItems();
                 });
         }, 300);
     });
-
     document.addEventListener('click', (e) => {
         if (!employeeSearch.contains(e.target) && !resultsBox.contains(e.target)) {
             resultsBox.style.display = 'none';
         }
     });
-
     document.getElementById('distributeForm').addEventListener('submit', function(e) {
         if (!employeeIdInput.value) {
             e.preventDefault();
             alert('Please select an employee from the search results.');
             return;
         }
-
         if (document.getElementById('assignButtonContainer').style.display === 'none') {
             e.preventDefault();
             alert('Please select at least one item with a valid quantity.');
         }
     });
-
     document.addEventListener('wheel', function(e) {
         if (document.activeElement.type === 'number') {
             document.activeElement.blur();
         }
     });
-
     const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     document.getElementById('currentDay').textContent = days[new Date().getDay()];
 
