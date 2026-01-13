@@ -5,7 +5,7 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_set_cookie_params([
         'path'     => '/',
-        'Secure'   => false,
+        'secure'   => false,
         'httponly' => true,
         'samesite' => 'Lax',
     ]);
@@ -21,6 +21,7 @@ function h($v) {
 function getGreeting() {
     $dt = new DateTime('now', new DateTimeZone('Asia/Jakarta'));
     $hour = (int) $dt->format('H');
+
     if ($hour >= 18) {
         return "Good Evening";
     } elseif ($hour >= 12) {
@@ -31,17 +32,39 @@ function getGreeting() {
 }
 
 // ---------------- CONFIG ----------------
+// $SSO_FRONTEND = 'http://localhost:3000';
+// $SSO_BACKEND  = 'http://localhost:5000';
 $SSO_FRONTEND = 'https://sso.ceresnl.com';
 $SSO_BACKEND  = 'https://sso.ceresnl.com:50443';
 $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
 $BASE_URL = $protocol . '://' . $_SERVER['HTTP_HOST'] . strtok($_SERVER['REQUEST_URI'], '?');
-
-// 👇 ADD THIS: DYNAMIC APP BASE PATH (e.g., /outgoing)
 $APP_BASE = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\') ?: '/';
 
 // ---------------- LOGOUT ----------------
 if (isset($_GET['action']) && $_GET['action'] === 'logout') {
+
+    // Optional: call SSO logout API here
+    // file_get_contents(...) or cURL
+
+    // Destroy PHP session
+    $_SESSION = [];
     session_destroy();
+
+    // Remove PHP session cookie
+    if (ini_get("session.use_cookies")) {
+        $params = session_get_cookie_params();
+        setcookie(
+            session_name(),
+            '',
+            time() - 42000,
+            $params["path"],
+            $params["domain"],
+            $params["secure"],
+            $params["httponly"]
+        );
+    }
+
+    // Redirect to login
     header("Location: $SSO_FRONTEND?returnUrl=" . urlencode($BASE_URL));
     exit;
 }
@@ -50,6 +73,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'logout') {
 if (isset($_GET['token']) && empty($_SESSION['token_consumed'])) {
     $_SESSION['token_consumed'] = true;
     $token = $_GET['token'];
+
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL            => "$SSO_BACKEND/api/validate-token",
@@ -59,19 +83,22 @@ if (isset($_GET['token']) && empty($_SESSION['token_consumed'])) {
         CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
         CURLOPT_TIMEOUT        => 10,
     ]);
+
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+
     if ($httpCode === 200) {
         $data = json_decode($response, true);
         if (!empty($data['username'])) {
             $_SESSION['user_id'] = $data['username'];
             $_SESSION['role']    = $data['role'] ?? 'user';
-            $_SESSION['fname'] = $data['fname'] ?? $data['username'];
+            $_SESSION['fname']   = $data['fname'] ?? $data['username'];
             header("Location: $BASE_URL");
             exit;
         }
     }
+
     session_destroy();
     header("Location: $SSO_FRONTEND");
     exit;
@@ -98,11 +125,8 @@ if (isset($_GET['view']) && $_GET['view'] === 'my-account') {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>My Account</title>
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="plugins/fontawesome-free/css/all.min.css">
-    <!-- AdminLTE -->
     <link rel="stylesheet" href="dist/css/adminlte.min.css">
     <style>
     .profile-card {
@@ -132,7 +156,6 @@ if (isset($_GET['view']) && $_GET['view'] === 'my-account') {
         color: #555;
     }
 
-    /* Sidebar styling */
     .main-sidebar {
         background-color: #083652 !important;
     }
@@ -167,7 +190,6 @@ if (isset($_GET['view']) && $_GET['view'] === 'my-account') {
 
 <body class="hold-transition sidebar-mini layout-navbar-fixed layout-fixed">
     <div class="wrapper">
-        <!-- Navbar -->
         <nav class="main-header navbar navbar-expand navbar-white navbar-light">
             <ul class="navbar-nav">
                 <li class="nav-item">
@@ -197,8 +219,6 @@ if (isset($_GET['view']) && $_GET['view'] === 'my-account') {
                 </li>
             </ul>
         </nav>
-
-        <!-- Sidebar -->
         <aside class="main-sidebar sidebar-dark-primary elevation-4">
             <a href="<?= h($APP_BASE) ?>/" class="brand-link">
                 <img src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEino1q43LiUDhvzaUKJx82I0jXa30TpJqhGexeJnoji_0zf3Pjog4aW099h1HkfXjso-LnNqizIlBYKaBeChFVH67LsLUcQ-cG_S92GC63DydTpSJ51gnakLJaYdi43EPARUrw_J2HtK5BA7y0ETAgVUJoINVjkxAhGJNmfRVvfFMYJkLzNp5J8uqrDhWs/s325/logoapp-red.png"
@@ -225,8 +245,6 @@ if (isset($_GET['view']) && $_GET['view'] === 'my-account') {
                 </nav>
             </div>
         </aside>
-
-        <!-- Content -->
         <div class="content-wrapper p-4">
             <div class="container-fluid">
                 <div class="profile-card card">
@@ -247,23 +265,14 @@ if (isset($_GET['view']) && $_GET['view'] === 'my-account') {
                 </div>
             </div>
         </div>
-
-        <!-- Scripts -->
         <script src="plugins/jquery/jquery.min.js"></script>
         <script src="plugins/bootstrap/js/bootstrap.bundle.min.js"></script>
         <script src="dist/js/adminlte.js"></script>
-        <script>
-        function handleLogout() {
-            localStorage.clear();
-            sessionStorage.clear();
-            window.location.href = '?action=logout';
-        }
-        </script>
 </body>
 
 </html>
 <?php
-    exit;
+exit;
 }
 
 // ---------------- DATABASE ----------------
@@ -275,9 +284,9 @@ const DB_PASS = 'Bb;gWmvDQ4=!';
 try {
     $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
     $pdo = new PDO($dsn, DB_USER, DB_PASS, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
+        PDO::ATTR_EMULATE_PREPARES   => false,
     ]);
 } catch (PDOException $e) {
     die("DB Connection Error: " . h($e->getMessage()));
@@ -286,6 +295,8 @@ try {
 // ---------------- SERVICE ----------------
 class DistributionService {
     public function __construct(private PDO $pdo) {}
+
+    // VALIDATE & DISTRIBUTE WITH STOCK CHECK
     public function distributeItems(array $data): void {
         if (empty($data['items']) || !is_array($data['items'])) {
             throw new InvalidArgumentException("No items provided.");
@@ -293,6 +304,7 @@ class DistributionService {
         if (empty($data['company_id'])) {
             throw new RuntimeException("Company ID is missing for employee.");
         }
+
         $this->pdo->beginTransaction();
         try {
             $stmtHeader = $this->pdo->prepare("
@@ -307,45 +319,74 @@ class DistributionService {
                 ':type'       => $data['type'] ?? '',
             ]);
             $usageId = $this->pdo->lastInsertId();
+
             $stmtDtl = $this->pdo->prepare("
                 INSERT INTO USAGE_ITEM_DTL (USAGE_ID, ITEM_ID, ITEM_NO, ITEM_DESC, QTY, UOM)
                 VALUES (:uid, :iid, :ino, :idesc, :qty, :uom)
             ");
+
             foreach ($data['items'] as $itemInput) {
                 if (empty($itemInput['item_id']) || empty($itemInput['qty'])) continue;
-                $item = $this->getItemInfo($itemInput['item_id']);
-                if (!$item) {
-                    throw new RuntimeException("Item ID {$itemInput['item_id']} not found.");
+
+                $itemId = $itemInput['item_id'];
+                $requestedQty = (float)$itemInput['qty'];
+
+                // 🔒 SERVER-SIDE STOCK VALIDATION
+                $availStmt = $this->pdo->prepare("
+                    SELECT 
+                        COALESCE(SUM(rid.QTY), 0) - COALESCE(SUM(uid.QTY), 0) AS available
+                    FROM ITEM_MASTER im
+                    LEFT JOIN RECEIVE_ITEM_DTL rid ON im.ITEM_ID = rid.ITEM_ID
+                    LEFT JOIN USAGE_ITEM_DTL uid ON im.ITEM_ID = uid.ITEM_ID
+                    WHERE im.ITEM_ID = ?
+                    GROUP BY im.ITEM_ID
+                ");
+                $availStmt->execute([$itemId]);
+                $available = (float)($availStmt->fetchColumn() ?? 0);
+
+                if ($requestedQty > $available) {
+                    throw new RuntimeException("Insufficient stock for item ID $itemId. Available: $available, Requested: $requestedQty");
                 }
+
+                $item = $this->getItemInfo($itemId);
+                if (!$item) {
+                    throw new RuntimeException("Item ID {$itemId} not found.");
+                }
+
                 $stmtDtl->execute([
                     ':uid'    => $usageId,
                     ':iid'    => $item['ITEM_ID'],
                     ':ino'    => $item['ITEM_NO'],
                     ':idesc'  => $item['ITEM_DESC'],
-                    ':qty'    => (float) $itemInput['qty'],
+                    ':qty'    => $requestedQty,
                     ':uom'    => $item['UOM']
                 ]);
             }
+
             $this->pdo->commit();
         } catch (Exception $e) {
             $this->pdo->rollBack();
             throw $e;
         }
     }
+
     public function returnItem(array $data): void {
         $employeeId = $data['employee_id'];
         $itemNo     = $data['item_no'];
         $qty        = (int)$data['qty'];
         $notes      = $data['notes'] ?? '';
+
         if ($qty <= 0) {
             throw new RuntimeException("Return quantity must be greater than zero.");
         }
+
         $empStmt = $this->pdo->prepare("SELECT COMPANY_ID FROM EMPLOYEE_TBL WHERE EMPLOYEE_ID = ?");
         $empStmt->execute([$employeeId]);
         $companyId = $empStmt->fetchColumn();
         if (!$companyId) {
             throw new RuntimeException("Employee or company not found.");
         }
+
         $stmtCheck = $this->pdo->prepare("
             SELECT CURRENT_POSSESSION
             FROM v_employee_asset_possession
@@ -359,6 +400,7 @@ class DistributionService {
         if ($qty > $current) {
             throw new RuntimeException("Return quantity exceeds held quantity.");
         }
+
         $this->pdo->beginTransaction();
         try {
             $stmt = $this->pdo->prepare("
@@ -372,6 +414,7 @@ class DistributionService {
                 ':notes'      => $notes
             ]);
             $returnId = $this->pdo->lastInsertId();
+
             $stmtItem = $this->pdo->prepare("
                 SELECT ITEM_ID, ITEM_NO, ITEM_DESC, UOM
                 FROM ITEM_MASTER
@@ -382,6 +425,7 @@ class DistributionService {
             if (!$item) {
                 throw new RuntimeException("Item not found.");
             }
+
             $stmtDtl = $this->pdo->prepare("
                 INSERT INTO RETURN_ITEM_DTL
                 (RETURN_ID, ITEM_ID, ITEM_NO, ITEM_DESC, QTY, UOM)
@@ -401,11 +445,13 @@ class DistributionService {
             throw $e;
         }
     }
+
     private function getItemInfo($id) {
         $stmt = $this->pdo->prepare("SELECT * FROM ITEM_MASTER WHERE ITEM_ID = ?");
         $stmt->execute([$id]);
         return $stmt->fetch();
     }
+
     public function getEmployees(): array {
         return $this->pdo->query("
             SELECT e.EMPLOYEE_ID, p.FIRST_NAME, p.LAST_NAME, e.COMPANY_ID
@@ -414,10 +460,29 @@ class DistributionService {
             ORDER BY p.FIRST_NAME
         ")->fetchAll();
     }
-    public function getItems(): array {
-        return $this->pdo->query("SELECT ITEM_ID, ITEM_DESC, ITEM_NO FROM ITEM_MASTER ORDER BY ITEM_DESC")->fetchAll();
+
+    // GET ITEMS WITH AVAILABLE QUANTITY
+    public function getItemsWithAvailability(): array {
+        $sql = "
+            SELECT 
+                im.ITEM_ID,
+                im.ITEM_NO,
+                im.ITEM_DESC,
+                im.UOM,
+                COALESCE(SUM(rid.QTY), 0) AS total_received,
+                COALESCE(SUM(uid.QTY), 0) AS total_used,
+                (COALESCE(SUM(rid.QTY), 0) - COALESCE(SUM(uid.QTY), 0)) AS available_qty
+            FROM ITEM_MASTER im
+            LEFT JOIN RECEIVE_ITEM_DTL rid ON im.ITEM_ID = rid.ITEM_ID
+            LEFT JOIN USAGE_ITEM_DTL uid ON im.ITEM_ID = uid.ITEM_ID
+            GROUP BY im.ITEM_ID, im.ITEM_NO, im.ITEM_DESC, im.UOM
+            HAVING available_qty > 0
+            ORDER BY im.ITEM_DESC ASC
+        ";
+        return $this->pdo->query($sql)->fetchAll();
     }
 }
+
 $service = new DistributionService($pdo);
 
 // ---------------- EMPLOYEE SEARCH API ----------------
@@ -513,9 +578,11 @@ $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
 $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $possessions = $stmt->fetchAll();
+
 $employees = $service->getEmployees();
-$items = $service->getItems();
+$items = $service->getItemsWithAvailability(); // Use availability-aware method
 ?>
+
 <!DOCTYPE html>
 <html lang="en-US">
 
@@ -524,15 +591,10 @@ $items = $service->getItems();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>Inventory Distribution</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="plugins/fontawesome-free/css/all.min.css">
-    <!-- Ionicons -->
     <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
-    <!-- AdminLTE -->
     <link rel="stylesheet" href="dist/css/adminlte.min.css">
-    <!-- Google Font: Source Sans Pro -->
     <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700" rel="stylesheet">
     <style>
     body {
@@ -589,7 +651,6 @@ $items = $service->getItems();
         border-left: 4px solid #0d6efd;
     }
 
-    /* Employee Search Dropdown */
     #employee_results {
         position: absolute;
         z-index: 1000;
@@ -613,7 +674,6 @@ $items = $service->getItems();
         background-color: #e9ecef;
     }
 
-    /* CRITICAL FIX: Perfect horizontal alignment */
     .nav-item-aligned {
         display: flex;
         align-items: center;
@@ -662,6 +722,11 @@ $items = $service->getItems();
     .main-sidebar .nav-sidebar>.nav-item>.nav-link.active:hover {
         background-color: rgba(255, 255, 255, 0.2);
         color: #fff;
+    }
+
+    .qty-error {
+        border-color: #dc3545 !important;
+        box-shadow: 0 0 0 0.25rem rgba(220, 53, 69, 0.25) !important;
     }
     </style>
 </head>
@@ -811,38 +876,18 @@ $items = $service->getItems();
                                     <input type="text" name="sk_number" class="form-control"
                                         placeholder="e.g: 19.22.360">
                                 </div>
-                                <!-- BUTTON NOW HIDDEN BY DEFAULT IN CONTAINER -->
+                                <!-- ADD ITEM BUTTON -->
                                 <div class="d-grid gap-2">
                                     <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addRow()">+
                                         Add Another Item</button>
                                 </div>
+                                <!-- ITEMS CONTAINER (STARTS EMPTY) -->
                                 <div id="items-container">
-                                    <?php for ($i = 0; $i < 3; $i++): ?>
-                                    <div class="row g-2 mb-2 item-row">
-                                        <div class="col-7">
-                                            <select name="items[<?= $i ?>][item_id]" class="form-select">
-                                                <option value="">Select Item...</option>
-                                                <?php foreach($items as $itm): ?>
-                                                <option value="<?= h($itm['ITEM_ID']) ?>">
-                                                    <?= h($itm['ITEM_DESC']) ?> (<?= h($itm['ITEM_NO']) ?>)
-                                                </option>
-                                                <?php endforeach; ?>
-                                            </select>
-                                        </div>
-                                        <div class="col-4">
-                                            <input type="number" min="1" name="items[<?= $i ?>][qty]"
-                                                class="form-control" placeholder="Qty">
-                                        </div>
-                                        <div class="col-1 d-flex align-items-center">
-                                            <button type="button" class="btn btn-sm btn-outline-danger"
-                                                onclick="removeRow(this)">✕</button>
-                                        </div>
-                                    </div>
-                                    <?php endfor; ?>
+                                    <!-- No default rows -->
                                 </div>
                                 <div class="mb-3">
                                     <div id="assignButtonContainer" style="display: none;">
-                                        <button type="submit" class="btn btn-success">Assign Selected Items</button>
+                                        <button type="submit" class="btn btn-success">Submit</button>
                                     </div>
                                 </div>
                             </form>
@@ -884,7 +929,8 @@ $items = $service->getItems();
                                             <div class="small text-muted"><?= h($row['ITEM_NO']) ?></div>
                                         </td>
                                         <td class="text-center fw-bold fs-5">
-                                            <?= number_format((float)$row['CURRENT_POSSESSION'], 0) ?></td>
+                                            <?= number_format((float)$row['CURRENT_POSSESSION'], 0) ?>
+                                        </td>
                                         <td class="text-end">
                                             <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal"
                                                 data-bs-target="#returnModal"
@@ -985,59 +1031,77 @@ $end = min($offset + $limit, $totalPossessions);
     <script src="dist/js/adminlte.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    let rowIndex = 3;
+    let rowIndex = 0;
+
+    function validateQtyInRow(qtyInput) {
+        const row = qtyInput.closest('.item-row');
+        const select = row.querySelector('.item-select');
+        const option = select.options[select.selectedIndex];
+        const available = parseFloat(option.getAttribute('data-available')) || 0;
+        let qty = parseInt(qtyInput.value) || 0;
+
+        if (qty > available || qty <= 0) {
+            qtyInput.classList.add('qty-error');
+            return false;
+        } else {
+            qtyInput.classList.remove('qty-error');
+            return true;
+        }
+    }
 
     function updateAssignButtonState() {
         const rows = document.querySelectorAll('.item-row');
         let hasValidRow = false;
         for (const row of rows) {
-            const select = row.querySelector('select[name$="[item_id]"]');
-            const qtyInput = row.querySelector('input[name$="[qty]"]');
+            const select = row.querySelector('.item-select');
+            const qtyInput = row.querySelector('.qty-input');
             if (select && qtyInput) {
                 const itemId = select.value.trim();
-                const qty = parseFloat(qtyInput.value);
-                if (itemId && !isNaN(qty) && qty > 0) {
+                if (itemId && validateQtyInRow(qtyInput)) {
                     hasValidRow = true;
-                    break;
                 }
             }
         }
         document.getElementById('assignButtonContainer').style.display = hasValidRow ? 'block' : 'none';
     }
-    document.querySelectorAll('.item-row select, .item-row input[name$="[qty]"]').forEach(el => {
-        el.addEventListener('input', updateAssignButtonState);
-        el.addEventListener('change', updateAssignButtonState);
-    });
-    updateAssignButtonState();
 
     function addRow() {
         const container = document.getElementById('items-container');
         const newRow = document.createElement('div');
         newRow.className = 'row g-2 mb-2 item-row';
         newRow.innerHTML = `
-        <div class="col-7">
-            <select name="items[${rowIndex}][item_id]" class="form-select">
-                <option value="">Select Item...</option>
-                <?php foreach($items as $itm): ?>
-                <option value="<?= h($itm['ITEM_ID']) ?>"><?= h($itm['ITEM_DESC']) ?> (<?= h($itm['ITEM_NO']) ?>)</option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-        <div class="col-4">
-            <input type="number" min="0.01" step="0.01" name="items[${rowIndex}][qty]" class="form-control" placeholder="Qty">
-        </div>
-        <div class="col-1 d-flex align-items-center">
-            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">✕</button>
-        </div>
+    <div class="col-7">
+        <select name="items[${rowIndex}][item_id]" class="form-select item-select">
+            <option value="">Select Item...</option>
+            <?php foreach($items as $itm): ?>
+            <option value="<?= h($itm['ITEM_ID']) ?>" data-available="<?= (float)$itm['available_qty'] ?>">
+                <?= h($itm['ITEM_DESC']) ?> (<?= h($itm['ITEM_NO']) ?>) — Avail: <?= number_format((float)$itm['available_qty']) ?>
+            </option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <div class="col-4">
+        <input type="number" min="1" step="1" name="items[${rowIndex}][qty]" class="form-control qty-input"
+               placeholder="Qty" oninput="validateQtyInRow(this); updateAssignButtonState();">
+    </div>
+    <div class="col-1 d-flex align-items-center">
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">✕</button>
+    </div>
     `;
         container.appendChild(newRow);
-        const newSelect = newRow.querySelector('select');
-        const newQty = newRow.querySelector('input[name$="[qty]"]');
+        const newSelect = newRow.querySelector('.item-select');
+        const newQty = newRow.querySelector('.qty-input');
         if (newSelect) {
-            newSelect.addEventListener('change', updateAssignButtonState);
+            newSelect.addEventListener('change', () => {
+                validateQtyInRow(newQty);
+                updateAssignButtonState();
+            });
         }
         if (newQty) {
-            newQty.addEventListener('input', updateAssignButtonState);
+            newQty.addEventListener('input', () => {
+                validateQtyInRow(newQty);
+                updateAssignButtonState();
+            });
         }
         rowIndex++;
     }
@@ -1059,6 +1123,8 @@ $end = min($offset + $limit, $totalPossessions);
         document.getElementById('ret_max').textContent = maxQty;
         document.getElementById('ret_qty').value = '';
     }
+
+    // Employee search
     const employeeSearch = document.getElementById('employee_search');
     const employeeIdInput = document.getElementById('employee_id');
     const resultsBox = document.getElementById('employee_results');
@@ -1082,10 +1148,8 @@ $end = min($offset + $limit, $totalPossessions);
                     employees.forEach(emp => {
                         const div = document.createElement('div');
                         div.className = 'list-group-item';
-                        div.innerHTML = `
-                    <div><strong>${emp.FIRST_NAME} ${emp.LAST_NAME}</strong></div>
-                    <div class="small text-muted">${emp.EMPLOYEE_ID}</div>
-                `;
+                        div.innerHTML =
+                            `<div><strong>${emp.FIRST_NAME} ${emp.LAST_NAME}</strong></div><div class="small text-muted">${emp.EMPLOYEE_ID}</div>`;
                         div.addEventListener('click', () => {
                             employeeSearch.value =
                                 `${emp.FIRST_NAME} ${emp.LAST_NAME}`;
@@ -1102,34 +1166,67 @@ $end = min($offset + $limit, $totalPossessions);
                 });
         }, 300);
     });
+
     document.addEventListener('click', (e) => {
         if (!employeeSearch.contains(e.target) && !resultsBox.contains(e.target)) {
             resultsBox.style.display = 'none';
         }
     });
+
     document.getElementById('distributeForm').addEventListener('submit', function(e) {
         if (!employeeIdInput.value) {
             e.preventDefault();
             alert('Please select an employee from the search results.');
             return;
         }
-        if (document.getElementById('assignButtonContainer').style.display === 'none') {
+        let allValid = true;
+        document.querySelectorAll('.qty-input').forEach(input => {
+            if (!validateQtyInRow(input)) allValid = false;
+        });
+        if (!allValid) {
             e.preventDefault();
-            alert('Please select at least one item with a valid quantity.');
+            alert('One or more items exceed available stock.');
         }
     });
+
     document.addEventListener('wheel', function(e) {
         if (document.activeElement.type === 'number') {
             document.activeElement.blur();
         }
     });
+
     const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     document.getElementById('currentDay').textContent = days[new Date().getDay()];
 
     function handleLogout() {
+        // $SSO_FRONTEND = 'http://localhost:3000';
+        // $SSO_BACKEND = 'http://localhost:5000';
+
+        $SSO_FRONTEND = 'https://sso.ceresnl.com  ';
+        $SSO_BACKEND = 'https://sso.ceresnl.com:50443';
+
+        const theme = localStorage.getItem('theme');
         localStorage.clear();
         sessionStorage.clear();
-        window.location.href = '?action=logout';
+
+        if (theme) localStorage.setItem('theme', theme);
+
+        fetch(`${$SSO_BACKEND}/api/logout`, {
+                method: 'GET',
+                credentials: 'include'
+            })
+            .then(response => {
+                if (!response.ok) throw new Error('Network response was not ok');
+                return response.json();
+            })
+            .then(data => {
+                console.log('Logout successful:', data);
+                window.location.href = data.redirect;
+            })
+            .catch(error => {
+                console.error('Logout error:', error);
+                alert('Failed to log out. Please try again.');
+            });
     }
     </script>
 </body>
